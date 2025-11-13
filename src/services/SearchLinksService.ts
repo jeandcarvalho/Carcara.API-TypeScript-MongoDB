@@ -154,7 +154,7 @@ function echoParams(q: URLSearchParams) {
     'l.left', 'l.right',
     'o.highway', 'o.landuse', 'o.surface', 'o.lanes', 'o.maxspeed', 'o.oneway', 'o.sidewalk', 'o.cycleway',
     's.building', 's.vegetation',
-    'y.class', 'y.rel',
+    'y.class', 'y.rel', 'y.conf', 'y.dist_m',
     'ext'
   ];
   const out: Record<string, any> = { b: {}, c: {}, l: {}, o: {}, s: {}, y: {} };
@@ -217,8 +217,10 @@ export class SearchLinksService {
       const oHighwayTokens = splitList(q.get('o.highway'));
       const oLanduseTokens = splitList(q.get('o.landuse'));
       const oSurfaceTokens = splitList(q.get('o.surface'));
-      const oLanes = splitList(q.get('o.lanes'));
-      const oMaxspeed = splitList(q.get('o.maxspeed')).map(x => Number(x)).filter(x => Number.isFinite(x));
+      const oLanesRaw = splitList(q.get('o.lanes'));
+      const oLanes = oLanesRaw.map(x => (x.includes('.') ? x : `${x}.0`));
+      const oMaxspeedRaw = splitList(q.get('o.maxspeed'));
+      const oMaxspeed = oMaxspeedRaw.map(x => (x.includes('.') ? x : `${x}.0`));
       const oOneway = splitList(q.get('o.oneway'));
       const oSidewalk = splitList(q.get('o.sidewalk'));
       const oCycleway = splitList(q.get('o.cycleway'));
@@ -231,6 +233,10 @@ export class SearchLinksService {
       const sVegetationTok = q.get('s.vegetation');
 
       const sBuildingRange: Range | undefined = sBuildingTok ? (() => {
+        // Primeiro tenta interpretar como range explícito (ex.: "10..30", "..50", "20..")
+        const parsed = parseRange(sBuildingTok);
+        if (parsed) return parsed;
+        // Mantém compatibilidade com low/mid/high
         const base = SEMSEG.building;
         if (sBuildingTok === 'low') return [0, base.median];
         if (sBuildingTok === 'mid') return [base.median, base.p75];
@@ -239,6 +245,8 @@ export class SearchLinksService {
       })() : undefined;
 
       const sVegetationRange: Range | undefined = sVegetationTok ? (() => {
+        const parsed = parseRange(sVegetationTok);
+        if (parsed) return parsed;
         const base = SEMSEG.vegetation;
         if (sVegetationTok === 'low') return [0, base.median];
         if (sVegetationTok === 'mid') return [base.median, base.p75];
@@ -249,6 +257,8 @@ export class SearchLinksService {
       // Filtros YOLO
       const yClasses = splitList(q.get('y.class'));
       const yRel = splitList(q.get('y.rel'));
+      const yConfRange = parseRange(q.get('y.conf'));
+      const yDistRange = parseRange(q.get('y.dist_m'));
 
       // Extensões aceitas
       const extTokens = splitList(q.get('ext'));
@@ -259,7 +269,7 @@ export class SearchLinksService {
       console.log('[SearchLinksService] laneego filters:', { lLeft, lRight });
       console.log('[SearchLinksService] Overpass filters:', { oHighway, oLanduse, oSurfaceTokens, oLanes, oMaxspeed, oOneway, oSidewalk, oCycleway });
       console.log('[SearchLinksService] SemSeg filters:', { sBuildingRange, sVegetationRange });
-      console.log('[SearchLinksService] YOLO filters:', { yClasses, yRel });
+      console.log('[SearchLinksService] YOLO filters:', { yClasses, yRel, yConfRange, yDistRange });
       console.log('[SearchLinksService] allowedExts:', allowedExts);
 
       // 1) blocks_5min → universo de aquisições
@@ -295,7 +305,7 @@ export class SearchLinksService {
       // 2) Detectar se há filtros 1 Hz
       const laneFiltersActive = lLeft.length || lRight.length;
       const canActive = !!cVRange || cSwaRanges.length > 0 || cBrakes.length > 0;
-      const yoloActive = yClasses.length > 0 || yRel.length > 0;
+      const yoloActive = yClasses.length > 0 || yRel.length > 0 || !!yConfRange || !!yDistRange;
       const overpassActive = oHighway.length > 0 || oLanduse.length > 0 || oSurfaceTokens.length > 0 ||
         oLanes.length > 0 || oMaxspeed.length > 0 || oOneway.length > 0 ||
         oSidewalk.length > 0 || oCycleway.length > 0;
@@ -573,14 +583,36 @@ export class SearchLinksService {
       }
 
       // yolo_1hz
-      if (yClasses.length > 0 || yRel.length > 0) {
+      if (yClasses.length > 0 || yRel.length > 0 || yConfRange || yDistRange) {
         console.log('[SearchLinksService] Aplicando filtros yolo_1hz...');
+
+        const whereYolo: any = {
+          acq_id: { in: acqUniverse },
+        };
+
+        if (yClasses.length) {
+          whereYolo.class = { in: yClasses };
+        }
+        if (yRel.length) {
+          whereYolo.rel_to_ego = { in: yRel };
+        }
+        if (yConfRange) {
+          const [lo, hi] = yConfRange;
+          const f: any = {};
+          if (lo != null) f.gte = lo;
+          if (hi != null) f.lte = hi;
+          whereYolo.conf = f;
+        }
+        if (yDistRange) {
+          const [lo, hi] = yDistRange;
+          const f: any = {};
+          if (lo != null) f.gte = lo;
+          if (hi != null) f.lte = hi;
+          whereYolo.dist_m = f;
+        }
+
         const rows = await prisma.yolo_1hz.findMany({
-          where: {
-            acq_id: { in: acqUniverse },
-            ...(yClasses.length ? { class: { in: yClasses } } : {}),
-            ...(yRel.length ? { rel_to_ego: { in: yRel } } : {}),
-          },
+          where: whereYolo,
           select: { acq_id: true, sec: true },
         });
         t = stamp('yolo_1hz.findMany', t, `rows=${rows.length}`);
@@ -612,7 +644,7 @@ export class SearchLinksService {
             ...(highwayVals.size ? { highway: { in: [...highwayVals] } } : {}),
             ...(landuseVals.size ? { landuse: { in: [...landuseVals] } } : {}),
             ...(oLanes.length ? { lanes: { in: oLanes } } : {}),
-            ...(oMaxspeed.length ? { maxspeed: { in: oMaxspeed.map(String) } } : {}),
+            ...(oMaxspeed.length ? { maxspeed: { in: oMaxspeed } } : {}),
             ...(oOneway.length ? { oneway: { in: oOneway } } : {}),
             ...(oSidewalk.length ? { sidewalk: { in: oSidewalk } } : {}),
             ...(oCycleway.length ? { cycleway: { in: oCycleway } } : {}),
