@@ -296,65 +296,62 @@ class SearchLinksService {
                 const anyFilters1Hz = laneFiltersActive || canActive || yoloActive || overpassActive || semsegActive;
                 /* ========== CAMINHO RÁPIDO (SEM FILTROS 1 Hz) ========== */
                 if (!anyFilters1Hz) {
-                    console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → caminho rápido de preview por aquisição.');
+                    console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → caminho rápido de preview por aquisição (1 findMany).');
+                    // 1 query só pegando TODAS as imagens válidas de todas as aquisições
+                    const rows = yield prisma.links.findMany({
+                        where: {
+                            acq_id: { in: acqUniverse },
+                            ext: { in: allowedExts },
+                            sec: { not: null },
+                        },
+                        select: {
+                            acq_id: true,
+                            sec: true,
+                            ext: true,
+                            link: true,
+                        },
+                        orderBy: [
+                            { acq_id: 'asc' },
+                            { sec: 'asc' },
+                        ],
+                    });
+                    t = stamp('links.findMany (fast preview ALL acq)', t, `rows=${rows.length}`);
+                    // agrupa por acq_id
+                    const byAcq = new Map();
+                    for (const r of rows) {
+                        const acq = String(r.acq_id);
+                        if (!byAcq.has(acq))
+                            byAcq.set(acq, []);
+                        byAcq.get(acq).push(r);
+                    }
                     const preview = [];
-                    for (const acq of acqUniverse) {
-                        // Primeiras
-                        const first = yield prisma.links.findMany({
-                            where: {
-                                acq_id: acq,
-                                ext: { in: allowedExts },
-                                sec: { not: null },
-                            },
-                            orderBy: { sec: 'asc' },
-                            take: MAX_IMG_PER_ACQ,
-                            select: { acq_id: true, sec: true, ext: true, link: true },
-                        });
-                        // Últimas
-                        const last = yield prisma.links.findMany({
-                            where: {
-                                acq_id: acq,
-                                ext: { in: allowedExts },
-                                sec: { not: null },
-                            },
-                            orderBy: { sec: 'desc' },
-                            take: MAX_IMG_PER_ACQ,
-                            select: { acq_id: true, sec: true, ext: true, link: true },
-                        });
-                        // Merge por sec (para evitar duplicatas) + ordenar
-                        const bySec = new Map();
-                        for (const r of first.concat(last)) {
-                            if (r.sec == null)
-                                continue;
-                            bySec.set(r.sec, r);
-                        }
-                        const merged = [...bySec.values()].sort((a, b) => { var _a, _b; return ((_a = a.sec) !== null && _a !== void 0 ? _a : 0) - ((_b = b.sec) !== null && _b !== void 0 ? _b : 0); });
-                        if (!merged.length)
-                            continue;
-                        const sampled = sampleEvenly(merged, Math.min(MAX_IMG_PER_ACQ, merged.length));
+                    for (const [acq, list] of byAcq.entries()) {
+                        // list já está em ordem por sec asc
+                        const sampled = sampleEvenly(list, Math.min(MAX_IMG_PER_ACQ, list.length));
                         preview.push(...sampled);
                     }
-                    const totalLinks = preview.length;
-                    const totalPages = Math.max(1, Math.ceil(totalLinks / perPage));
+                    const totalRaw = rows.length;
+                    const totalPreview = preview.length;
+                    const totalPages = Math.max(1, Math.ceil(totalPreview / perPage));
                     const start = (page - 1) * perPage;
                     const end = start + perPage;
                     const pageDocs = preview.slice(start, end);
                     const hasMore = page < totalPages;
-                    console.log(`[SearchLinksService] FAST PREVIEW: acq_ids=${acqUniverse.length}, total_preview_links=${totalLinks}`);
+                    console.log(`[SearchLinksService] FAST PREVIEW: acq_ids=${acqUniverse.length}, total_raw_links=${totalRaw}, total_preview_links=${totalPreview}`);
                     console.log(`[SearchLinksService] page_info = page=${page}, per_page=${perPage}, docs_page=${pageDocs.length}`);
                     console.log(`[SearchLinksService] total elapsed = ${Date.now() - t0}ms`);
                     return {
                         filters_echo: echoParams(q),
                         counts: {
                             matched_acq_ids: acqUniverse.length,
-                            matched_seconds: totalLinks, // aqui só contamos os segundos amostrados
-                            total_links: totalLinks, // total de links retornados (preview)
+                            matched_seconds: totalRaw, // quantos segundos/imagens havia no total
+                            total_links: totalPreview, // quantos links estamos retornando (amostrado)
                         },
                         page_info: {
                             page,
                             per_page: perPage,
                             has_more: hasMore,
-                            total: totalLinks,
+                            total: totalPreview,
                             total_pages: totalPages,
                         },
                         documents: pageDocs.map(d => {
