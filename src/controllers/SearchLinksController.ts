@@ -7,8 +7,9 @@ export class SearchLinksController {
     // request.raw.url traz "/api/search?..." mesmo atrás de proxies
     const rawUrl = request.raw?.url || request.url;
 
-    // método estático da service
-    const result = await SearchLinksService.executeFromURL(rawUrl);
+    // cria instância da service e usa o método de instância executeFromURL
+    const service = new SearchLinksService();
+    const result = await service.executeFromURL(rawUrl);
 
     reply.send(result);
   }

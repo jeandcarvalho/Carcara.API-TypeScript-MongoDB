@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Número máximo de imagens por aquisição
+// Número máximo de imagens por aquisição no preview
 const MAX_IMG_PER_ACQ = 5;
 
 // Helper de tempo/log
@@ -174,11 +174,12 @@ function echoParams(q: URLSearchParams) {
 /* ===================== Service ===================== */
 
 export class SearchLinksService {
-  // wrapper para manter compatibilidade com o controller
-  static async executeFromURL(rawUrl: string) {
-    return this.search(rawUrl);
+  // Compatível com seu controller (instância)
+  async executeFromURL(rawUrl: string) {
+    return SearchLinksService.search(rawUrl);
   }
 
+  // Lógica principal
   static async search(rawUrl: string) {
     const t0 = Date.now();
     let t = t0;
@@ -302,50 +303,158 @@ export class SearchLinksService {
 
       const anyFilters1Hz = laneFiltersActive || canActive || yoloActive || overpassActive || semsegActive;
 
-      /* ========== CAMINHO RÁPIDO (SEM FILTROS 1 Hz) ========== */
+      /* ========== CAMINHO RÁPIDO (SEM FILTROS 1 Hz) — AGGREGATE ========== */
 
       if (!anyFilters1Hz) {
-        console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → caminho rápido de preview por aquisição (1 findMany).');
+        console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → caminho rápido de preview por aquisição (aggregate).');
 
-        type LinkRow = { acq_id: any; sec: number | null; ext: string | null; link: string };
+        // Pipeline de aggregate no Mongo para pegar até 5 imagens bem distribuídas por acq_id
+        const pipeline: any[] = [
+          {
+            $match: {
+              acq_id: { $in: acqUniverse },
+              ext: { $in: allowedExts },
+              sec: { $ne: null },
+            },
+          },
+          { $sort: { acq_id: 1, sec: 1 } },
+          {
+            $group: {
+              _id: "$acq_id",
+              docs: {
+                $push: {
+                  sec: "$sec",
+                  ext: "$ext",
+                  link: "$link",
+                },
+              },
+              count: { $sum: 1 },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              acq_id: "$_id",
+              count: 1,
+              docs: 1,
+              idx0: { $literal: 0 },
+              idx1: {
+                $cond: [
+                  { $gt: ["$count", 1] },
+                  {
+                    $floor: {
+                      $divide: [
+                        { $subtract: ["$count", 1] },
+                        4,
+                      ],
+                    },
+                  },
+                  0,
+                ],
+              },
+              idx2: {
+                $cond: [
+                  { $gt: ["$count", 2] },
+                  {
+                    $floor: {
+                      $divide: [
+                        {
+                          $multiply: [
+                            { $subtract: ["$count", 1] },
+                            2,
+                          ],
+                        },
+                        4,
+                      ],
+                    },
+                  },
+                  0,
+                ],
+              },
+              idx3: {
+                $cond: [
+                  { $gt: ["$count", 3] },
+                  {
+                    $floor: {
+                      $divide: [
+                        {
+                          $multiply: [
+                            { $subtract: ["$count", 1] },
+                            3,
+                          ],
+                        },
+                        4,
+                      ],
+                    },
+                  },
+                  0,
+                ],
+              },
+              idx4: {
+                $cond: [
+                  { $gt: ["$count", 4] },
+                  { $subtract: ["$count", 1] },
+                  0,
+                ],
+              },
+            },
+          },
+          {
+            $project: {
+              acq_id: 1,
+              count: 1,
+              samples: {
+                $setUnion: [[
+                  { $arrayElemAt: ["$docs", "$idx0"] },
+                  { $arrayElemAt: ["$docs", "$idx1"] },
+                  { $arrayElemAt: ["$docs", "$idx2"] },
+                  { $arrayElemAt: ["$docs", "$idx3"] },
+                  { $arrayElemAt: ["$docs", "$idx4"] },
+                ]],
+              },
+            },
+          },
+        ];
 
-        // 1 query só pegando TODAS as imagens válidas de todas as aquisições
-        const rows: LinkRow[] = await prisma.links.findMany({
-          where: {
-            acq_id: { in: acqUniverse },
-            ext: { in: allowedExts },
-            sec: { not: null },
-          },
-          select: {
-            acq_id: true,
-            sec: true,
-            ext: true,
-            link: true,
-          },
-          orderBy: [
-            { acq_id: 'asc' },
-            { sec: 'asc' },
-          ],
+        // Rodando aggregate bruto via Prisma (Mongo)
+        const aggResult: any = await (prisma as any).$runCommandRaw({
+          aggregate: "links",
+          pipeline,
+          cursor: {},
         });
 
-        t = stamp('links.findMany (fast preview ALL acq)', t, `rows=${rows.length}`);
+        const batch: any[] = (aggResult?.cursor?.firstBatch ?? []) as any[];
 
-        // agrupa por acq_id
-        const byAcq = new Map<string, LinkRow[]>();
-        for (const r of rows) {
-          const acq = String(r.acq_id);
-          if (!byAcq.has(acq)) byAcq.set(acq, []);
-          byAcq.get(acq)!.push(r);
+        t = stamp('links.aggregate (fast preview ALL acq)', t, `groups=${batch.length}`);
+
+        type SampleRow = {
+          acq_id: string;
+          count: number;
+          samples: { sec: number | null; ext?: string | null; link: string }[];
+        };
+
+        const preview: { acq_id: string; sec: number | null; ext?: string | null; link: string }[] = [];
+        let totalRawSeconds = 0;
+
+        for (const row of batch as SampleRow[]) {
+          const acq = String(row.acq_id);
+          const count = row.count ?? 0;
+          totalRawSeconds += count;
+
+          if (Array.isArray(row.samples)) {
+            for (const s of row.samples) {
+              if (!s) continue;
+              preview.push({
+                acq_id: acq,
+                sec: s.sec ?? null,
+                ext: s.ext ?? null,
+                link: s.link,
+              });
+            }
+          }
         }
 
-        const preview: LinkRow[] = [];
-        for (const [acq, list] of byAcq.entries()) {
-          // list já está em ordem por sec asc
-          const sampled = sampleEvenly(list, Math.min(MAX_IMG_PER_ACQ, list.length));
-          preview.push(...sampled);
-        }
-
-        const totalRaw = rows.length;
+        const matchedAcqCount = batch.length;
         const totalPreview = preview.length;
         const totalPages = Math.max(1, Math.ceil(totalPreview / perPage));
         const start = (page - 1) * perPage;
@@ -354,7 +463,7 @@ export class SearchLinksService {
         const hasMore = page < totalPages;
 
         console.log(
-          `[SearchLinksService] FAST PREVIEW: acq_ids=${acqUniverse.length}, total_raw_links=${totalRaw}, total_preview_links=${totalPreview}`
+          `[SearchLinksService] FAST PREVIEW (AGG): acq_ids=${matchedAcqCount}, total_raw_links=${totalRawSeconds}, total_preview_links=${totalPreview}`
         );
         console.log(
           `[SearchLinksService] page_info = page=${page}, per_page=${perPage}, docs_page=${pageDocs.length}`
@@ -364,9 +473,9 @@ export class SearchLinksService {
         return {
           filters_echo: echoParams(q),
           counts: {
-            matched_acq_ids: acqUniverse.length,
-            matched_seconds: totalRaw,   // quantos segundos/imagens havia no total
-            total_links: totalPreview,   // quantos links estamos retornando (amostrado)
+            matched_acq_ids: matchedAcqCount,
+            matched_seconds: totalRawSeconds,
+            total_links: totalPreview,
           },
           page_info: {
             page,
@@ -376,8 +485,8 @@ export class SearchLinksService {
             total_pages: totalPages,
           },
           documents: pageDocs.map(d => ({
-            acq_id: String(d.acq_id),
-            sec: d.sec ?? null,
+            acq_id: d.acq_id,
+            sec: d.sec,
             ext: d.ext ?? undefined,
             link: d.link,
           })),
@@ -389,7 +498,7 @@ export class SearchLinksService {
       let secondsMap: Map<string, Set<number>> | null = null;
 
       // laneego_1hz
-      if (laneFiltersActive) {
+      if (lLeft.length || lRight.length) {
         console.log('[SearchLinksService] Aplicando filtros laneego_1hz...');
         const rows = await prisma.laneego_1hz.findMany({
           where: {
@@ -413,7 +522,7 @@ export class SearchLinksService {
       }
 
       // can_1hz
-      if (canActive) {
+      if (!!cVRange || cSwaRanges.length > 0 || cBrakes.length > 0) {
         console.log('[SearchLinksService] Aplicando filtros can_1hz...');
         const rows = await prisma.can_1hz.findMany({
           where: {
@@ -464,7 +573,7 @@ export class SearchLinksService {
       }
 
       // yolo_1hz
-      if (yoloActive) {
+      if (yClasses.length > 0 || yRel.length > 0) {
         console.log('[SearchLinksService] Aplicando filtros yolo_1hz...');
         const rows = await prisma.yolo_1hz.findMany({
           where: {
@@ -559,7 +668,7 @@ export class SearchLinksService {
       }
 
       // semseg_1hz
-      if (semsegActive) {
+      if (sBuildingRange || sVegetationRange) {
         console.log('[SearchLinksService] Aplicando filtros semseg_1hz...');
         const rows = await prisma.semseg_1hz.findMany({
           where: {

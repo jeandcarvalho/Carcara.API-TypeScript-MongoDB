@@ -13,7 +13,7 @@ exports.SearchLinksService = void 0;
 // services/SearchLinksService.ts
 const client_1 = require("@prisma/client");
 const prisma = new client_1.PrismaClient();
-// Número máximo de imagens por aquisição
+// Número máximo de imagens por aquisição no preview
 const MAX_IMG_PER_ACQ = 5;
 // Helper de tempo/log
 function stamp(label, prev, extra) {
@@ -186,14 +186,15 @@ function echoParams(q) {
 }
 /* ===================== Service ===================== */
 class SearchLinksService {
-    // wrapper para manter compatibilidade com o controller
-    static executeFromURL(rawUrl) {
+    // Compatível com seu controller (instância)
+    executeFromURL(rawUrl) {
         return __awaiter(this, void 0, void 0, function* () {
-            return this.search(rawUrl);
+            return SearchLinksService.search(rawUrl);
         });
     }
+    // Lógica principal
     static search(rawUrl) {
-        var _a;
+        var _a, _b, _c, _d, _e, _f;
         return __awaiter(this, void 0, void 0, function* () {
             const t0 = Date.now();
             let t = t0;
@@ -294,58 +295,159 @@ class SearchLinksService {
                     oSidewalk.length > 0 || oCycleway.length > 0;
                 const semsegActive = !!sBuildingRange || !!sVegetationRange;
                 const anyFilters1Hz = laneFiltersActive || canActive || yoloActive || overpassActive || semsegActive;
-                /* ========== CAMINHO RÁPIDO (SEM FILTROS 1 Hz) ========== */
+                /* ========== CAMINHO RÁPIDO (SEM FILTROS 1 Hz) — AGGREGATE ========== */
                 if (!anyFilters1Hz) {
-                    console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → caminho rápido de preview por aquisição (1 findMany).');
-                    // 1 query só pegando TODAS as imagens válidas de todas as aquisições
-                    const rows = yield prisma.links.findMany({
-                        where: {
-                            acq_id: { in: acqUniverse },
-                            ext: { in: allowedExts },
-                            sec: { not: null },
+                    console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → caminho rápido de preview por aquisição (aggregate).');
+                    // Pipeline de aggregate no Mongo para pegar até 5 imagens bem distribuídas por acq_id
+                    const pipeline = [
+                        {
+                            $match: {
+                                acq_id: { $in: acqUniverse },
+                                ext: { $in: allowedExts },
+                                sec: { $ne: null },
+                            },
                         },
-                        select: {
-                            acq_id: true,
-                            sec: true,
-                            ext: true,
-                            link: true,
+                        { $sort: { acq_id: 1, sec: 1 } },
+                        {
+                            $group: {
+                                _id: "$acq_id",
+                                docs: {
+                                    $push: {
+                                        sec: "$sec",
+                                        ext: "$ext",
+                                        link: "$link",
+                                    },
+                                },
+                                count: { $sum: 1 },
+                            },
                         },
-                        orderBy: [
-                            { acq_id: 'asc' },
-                            { sec: 'asc' },
-                        ],
+                        {
+                            $project: {
+                                _id: 0,
+                                acq_id: "$_id",
+                                count: 1,
+                                docs: 1,
+                                idx0: { $literal: 0 },
+                                idx1: {
+                                    $cond: [
+                                        { $gt: ["$count", 1] },
+                                        {
+                                            $floor: {
+                                                $divide: [
+                                                    { $subtract: ["$count", 1] },
+                                                    4,
+                                                ],
+                                            },
+                                        },
+                                        0,
+                                    ],
+                                },
+                                idx2: {
+                                    $cond: [
+                                        { $gt: ["$count", 2] },
+                                        {
+                                            $floor: {
+                                                $divide: [
+                                                    {
+                                                        $multiply: [
+                                                            { $subtract: ["$count", 1] },
+                                                            2,
+                                                        ],
+                                                    },
+                                                    4,
+                                                ],
+                                            },
+                                        },
+                                        0,
+                                    ],
+                                },
+                                idx3: {
+                                    $cond: [
+                                        { $gt: ["$count", 3] },
+                                        {
+                                            $floor: {
+                                                $divide: [
+                                                    {
+                                                        $multiply: [
+                                                            { $subtract: ["$count", 1] },
+                                                            3,
+                                                        ],
+                                                    },
+                                                    4,
+                                                ],
+                                            },
+                                        },
+                                        0,
+                                    ],
+                                },
+                                idx4: {
+                                    $cond: [
+                                        { $gt: ["$count", 4] },
+                                        { $subtract: ["$count", 1] },
+                                        0,
+                                    ],
+                                },
+                            },
+                        },
+                        {
+                            $project: {
+                                acq_id: 1,
+                                count: 1,
+                                samples: {
+                                    $setUnion: [[
+                                            { $arrayElemAt: ["$docs", "$idx0"] },
+                                            { $arrayElemAt: ["$docs", "$idx1"] },
+                                            { $arrayElemAt: ["$docs", "$idx2"] },
+                                            { $arrayElemAt: ["$docs", "$idx3"] },
+                                            { $arrayElemAt: ["$docs", "$idx4"] },
+                                        ]],
+                                },
+                            },
+                        },
+                    ];
+                    // Rodando aggregate bruto via Prisma (Mongo)
+                    const aggResult = yield prisma.$runCommandRaw({
+                        aggregate: "links",
+                        pipeline,
+                        cursor: {},
                     });
-                    t = stamp('links.findMany (fast preview ALL acq)', t, `rows=${rows.length}`);
-                    // agrupa por acq_id
-                    const byAcq = new Map();
-                    for (const r of rows) {
-                        const acq = String(r.acq_id);
-                        if (!byAcq.has(acq))
-                            byAcq.set(acq, []);
-                        byAcq.get(acq).push(r);
-                    }
+                    const batch = ((_b = (_a = aggResult === null || aggResult === void 0 ? void 0 : aggResult.cursor) === null || _a === void 0 ? void 0 : _a.firstBatch) !== null && _b !== void 0 ? _b : []);
+                    t = stamp('links.aggregate (fast preview ALL acq)', t, `groups=${batch.length}`);
                     const preview = [];
-                    for (const [acq, list] of byAcq.entries()) {
-                        // list já está em ordem por sec asc
-                        const sampled = sampleEvenly(list, Math.min(MAX_IMG_PER_ACQ, list.length));
-                        preview.push(...sampled);
+                    let totalRawSeconds = 0;
+                    for (const row of batch) {
+                        const acq = String(row.acq_id);
+                        const count = (_c = row.count) !== null && _c !== void 0 ? _c : 0;
+                        totalRawSeconds += count;
+                        if (Array.isArray(row.samples)) {
+                            for (const s of row.samples) {
+                                if (!s)
+                                    continue;
+                                preview.push({
+                                    acq_id: acq,
+                                    sec: (_d = s.sec) !== null && _d !== void 0 ? _d : null,
+                                    ext: (_e = s.ext) !== null && _e !== void 0 ? _e : null,
+                                    link: s.link,
+                                });
+                            }
+                        }
                     }
-                    const totalRaw = rows.length;
+                    const matchedAcqCount = batch.length;
                     const totalPreview = preview.length;
                     const totalPages = Math.max(1, Math.ceil(totalPreview / perPage));
                     const start = (page - 1) * perPage;
                     const end = start + perPage;
                     const pageDocs = preview.slice(start, end);
                     const hasMore = page < totalPages;
-                    console.log(`[SearchLinksService] FAST PREVIEW: acq_ids=${acqUniverse.length}, total_raw_links=${totalRaw}, total_preview_links=${totalPreview}`);
+                    console.log(`[SearchLinksService] FAST PREVIEW (AGG): acq_ids=${matchedAcqCount}, total_raw_links=${totalRawSeconds}, total_preview_links=${totalPreview}`);
                     console.log(`[SearchLinksService] page_info = page=${page}, per_page=${perPage}, docs_page=${pageDocs.length}`);
                     console.log(`[SearchLinksService] total elapsed = ${Date.now() - t0}ms`);
                     return {
                         filters_echo: echoParams(q),
                         counts: {
-                            matched_acq_ids: acqUniverse.length,
-                            matched_seconds: totalRaw, // quantos segundos/imagens havia no total
-                            total_links: totalPreview, // quantos links estamos retornando (amostrado)
+                            matched_acq_ids: matchedAcqCount,
+                            matched_seconds: totalRawSeconds,
+                            total_links: totalPreview,
                         },
                         page_info: {
                             page,
@@ -355,11 +457,11 @@ class SearchLinksService {
                             total_pages: totalPages,
                         },
                         documents: pageDocs.map(d => {
-                            var _a, _b;
+                            var _a;
                             return ({
-                                acq_id: String(d.acq_id),
-                                sec: (_a = d.sec) !== null && _a !== void 0 ? _a : null,
-                                ext: (_b = d.ext) !== null && _b !== void 0 ? _b : undefined,
+                                acq_id: d.acq_id,
+                                sec: d.sec,
+                                ext: (_a = d.ext) !== null && _a !== void 0 ? _a : undefined,
                                 link: d.link,
                             });
                         }),
@@ -368,7 +470,7 @@ class SearchLinksService {
                 /* ========== CAMINHO COMPLETO (COM FILTROS 1 Hz) ========== */
                 let secondsMap = null;
                 // laneego_1hz
-                if (laneFiltersActive) {
+                if (lLeft.length || lRight.length) {
                     console.log('[SearchLinksService] Aplicando filtros laneego_1hz...');
                     const rows = yield prisma.laneego_1hz.findMany({
                         where: Object.assign(Object.assign({ acq_id: { in: acqUniverse } }, (lLeft.length ? { left_disp: { in: lLeft } } : {})), (lRight.length ? { right_disp: { in: lRight } } : {})),
@@ -388,7 +490,7 @@ class SearchLinksService {
                     console.log(`[SearchLinksService] after laneego intersect: acq_ids=${secondsMap.size}`);
                 }
                 // can_1hz
-                if (canActive) {
+                if (!!cVRange || cSwaRanges.length > 0 || cBrakes.length > 0) {
                     console.log('[SearchLinksService] Aplicando filtros can_1hz...');
                     const rows = yield prisma.can_1hz.findMany({
                         where: {
@@ -424,7 +526,7 @@ class SearchLinksService {
                             pass = anySwa;
                         }
                         if (pass && cBrakes.length) {
-                            const val = String((_a = r.BrakeInfoStatus) !== null && _a !== void 0 ? _a : '');
+                            const val = String((_f = r.BrakeInfoStatus) !== null && _f !== void 0 ? _f : '');
                             pass = cBrakes.includes(val);
                         }
                         if (!pass)
@@ -437,7 +539,7 @@ class SearchLinksService {
                     console.log(`[SearchLinksService] after CAN intersect: acq_ids=${secondsMap.size}`);
                 }
                 // yolo_1hz
-                if (yoloActive) {
+                if (yClasses.length > 0 || yRel.length > 0) {
                     console.log('[SearchLinksService] Aplicando filtros yolo_1hz...');
                     const rows = yield prisma.yolo_1hz.findMany({
                         where: Object.assign(Object.assign({ acq_id: { in: acqUniverse } }, (yClasses.length ? { class: { in: yClasses } } : {})), (yRel.length ? { rel_to_ego: { in: yRel } } : {})),
@@ -516,7 +618,7 @@ class SearchLinksService {
                     console.log(`[SearchLinksService] after overpass intersect: acq_ids=${secondsMap.size}`);
                 }
                 // semseg_1hz
-                if (semsegActive) {
+                if (sBuildingRange || sVegetationRange) {
                     console.log('[SearchLinksService] Aplicando filtros semseg_1hz...');
                     const rows = yield prisma.semseg_1hz.findMany({
                         where: {

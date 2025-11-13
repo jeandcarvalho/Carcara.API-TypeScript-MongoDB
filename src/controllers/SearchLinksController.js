@@ -17,8 +17,9 @@ class SearchLinksController {
         return __awaiter(this, void 0, void 0, function* () {
             // request.raw.url traz "/api/search?..." mesmo atrás de proxies
             const rawUrl = ((_a = request.raw) === null || _a === void 0 ? void 0 : _a.url) || request.url;
-            // método estático da service
-            const result = yield SearchLinksService_1.SearchLinksService.executeFromURL(rawUrl);
+            // cria instância da service e usa o método de instância executeFromURL
+            const service = new SearchLinksService_1.SearchLinksService();
+            const result = yield service.executeFromURL(rawUrl);
             reply.send(result);
         });
     }
