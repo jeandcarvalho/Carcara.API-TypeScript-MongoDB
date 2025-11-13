@@ -164,7 +164,7 @@ function echoParams(q: URLSearchParams) {
 }
 
 export class SearchLinksService {
-  // wrapper para manter compatibilidade com o controller antigo
+  // wrapper para manter compat com o controller
   static async executeFromURL(rawUrl: string) {
     return this.search(rawUrl);
   }
@@ -509,37 +509,19 @@ export class SearchLinksService {
         if (!acqUniverse.length) {
           console.log('[SearchLinksService] acqUniverse vazio no fallback de segundos, nada a amostrar.');
         } else {
-          type RawSecRow = { acq_id: any; sec: number | null };
+          const rows = await prisma.links.findMany({
+            where: {
+              acq_id: { in: acqUniverse },
+              ext: 'jpg',
+              sec: { not: null },
+            },
+            select: {
+              acq_id: true,
+              sec: true,
+            },
+          });
 
-          const formattedIds = acqUniverse
-            .map(id => (typeof id === 'number' ? String(id) : `'${String(id).replace(/'/g, "''")}'`))
-            .join(',');
-
-          const sql = `
-            SELECT acq_id, sec
-            FROM (
-              SELECT
-                acq_id,
-                sec,
-                tile,
-                ROW_NUMBER() OVER (PARTITION BY acq_id, tile ORDER BY sec) AS rn
-              FROM (
-                SELECT
-                  acq_id,
-                  sec,
-                  NTILE(${MAX_IMG_PER_ACQ}) OVER (PARTITION BY acq_id ORDER BY sec) AS tile
-                FROM links
-                WHERE acq_id IN (${formattedIds})
-                  AND ext = 'jpg'
-                  AND sec IS NOT NULL
-              ) t1
-            ) t2
-            WHERE rn = 1
-            ORDER BY acq_id, sec
-          `;
-
-          const rows = await (prisma as any).$queryRawUnsafe(sql) as RawSecRow[];
-          t = stamp('links.seconds fallback via window func', t, `rows=${rows.length}`);
+          t = stamp('links.seconds fallback via findMany', t, `rows=${rows.length}`);
 
           for (const p of rows) {
             if (p.sec == null) continue;

@@ -7,7 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
-};
+}; // 
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SearchLinksService = void 0;
 // services/SearchLinksService.ts
@@ -180,7 +180,7 @@ function echoParams(q) {
     return out;
 }
 class SearchLinksService {
-    // wrapper para manter compatibilidade com o controller antigo
+    // wrapper para manter compat com o controller
     static executeFromURL(rawUrl) {
         return __awaiter(this, void 0, void 0, function* () {
             return this.search(rawUrl);
@@ -483,33 +483,18 @@ class SearchLinksService {
                         console.log('[SearchLinksService] acqUniverse vazio no fallback de segundos, nada a amostrar.');
                     }
                     else {
-                        const formattedIds = acqUniverse
-                            .map(id => (typeof id === 'number' ? String(id) : `'${String(id).replace(/'/g, "''")}'`))
-                            .join(',');
-                        const sql = `
-            SELECT acq_id, sec
-            FROM (
-              SELECT
-                acq_id,
-                sec,
-                tile,
-                ROW_NUMBER() OVER (PARTITION BY acq_id, tile ORDER BY sec) AS rn
-              FROM (
-                SELECT
-                  acq_id,
-                  sec,
-                  NTILE(${MAX_IMG_PER_ACQ}) OVER (PARTITION BY acq_id ORDER BY sec) AS tile
-                FROM links
-                WHERE acq_id IN (${formattedIds})
-                  AND ext = 'jpg'
-                  AND sec IS NOT NULL
-              ) t1
-            ) t2
-            WHERE rn = 1
-            ORDER BY acq_id, sec
-          `;
-                        const rows = yield prisma.$queryRawUnsafe(sql);
-                        t = stamp('links.seconds fallback via window func', t, `rows=${rows.length}`);
+                        const rows = yield prisma.links.findMany({
+                            where: {
+                                acq_id: { in: acqUniverse },
+                                ext: 'jpg',
+                                sec: { not: null },
+                            },
+                            select: {
+                                acq_id: true,
+                                sec: true,
+                            },
+                        });
+                        t = stamp('links.seconds fallback via findMany', t, `rows=${rows.length}`);
                         for (const p of rows) {
                             if (p.sec == null)
                                 continue;
