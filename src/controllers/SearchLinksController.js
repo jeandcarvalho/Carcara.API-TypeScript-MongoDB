@@ -15,10 +15,10 @@ class SearchLinksController {
     handle(request, reply) {
         var _a;
         return __awaiter(this, void 0, void 0, function* () {
-            const service = new SearchLinksService_1.SearchLinksService();
             // request.raw.url traz "/api/search?..." mesmo atrás de proxies
             const rawUrl = ((_a = request.raw) === null || _a === void 0 ? void 0 : _a.url) || request.url;
-            const result = yield service.executeFromURL(rawUrl);
+            // método estático da service
+            const result = yield SearchLinksService_1.SearchLinksService.executeFromURL(rawUrl);
             reply.send(result);
         });
     }
