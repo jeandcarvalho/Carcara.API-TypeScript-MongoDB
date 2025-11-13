@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Número máximo de imagens (jpg) por aquisição
+// Número máximo de imagens por aquisição
 const MAX_IMG_PER_ACQ = 5;
 
 // Helper de tempo/log
@@ -14,7 +14,8 @@ function stamp(label: string, prev: number, extra?: string) {
   return now;
 }
 
-// ===== Helpers de parsing (iguais ao front) =====
+/* ===================== Helpers de parsing ===================== */
+
 function splitList(v?: string | null) {
   if (!v) return [];
   return v.split(',').map(s => s.trim()).filter(Boolean);
@@ -36,7 +37,11 @@ function inRange(numStr: string | null | undefined, lo?: number, hi?: number) {
   return true;
 }
 
-// ====== Grupos Overpass (espelham o front) ======
+// range genérico [lo, hi] com hi opcional
+type Range = [number | undefined, number | undefined];
+
+/* ===================== Grupos Overpass ===================== */
+
 const GROUPS = {
   highway: {
     primary: ["motorway","trunk","primary"],
@@ -58,8 +63,13 @@ const GROUPS = {
 } as const;
 
 // Surface → grupos (paved/unpaved) para `o.surface`
-const SURFACE_PAVED = new Set(["asphalt","paved","concrete","concrete_plates","paving_stones","sett","cement"]);
-const SURFACE_UNPAVED = new Set(["unpaved","compacted","gravel","fine_gravel","gravel_turf","dirt","earth","ground","pebblestone","grass","sand","mud","soil","clay"]);
+const SURFACE_PAVED = new Set([
+  "asphalt","paved","concrete","concrete_plates","paving_stones","sett","cement"
+]);
+const SURFACE_UNPAVED = new Set([
+  "unpaved","compacted","gravel","fine_gravel","gravel_turf",
+  "dirt","earth","ground","pebblestone","grass","sand","mud","soil","clay"
+]);
 
 // SemSeg thresholds (mesmos valores da UI)
 const SEMSEG = {
@@ -67,10 +77,8 @@ const SEMSEG = {
   vegetation: { p25: 0.0, median: 4.75, p75: 28.31 },
 };
 
-// range genérico [lo, hi] com hi opcional
-type Range = [number | undefined, number | undefined];
+/* ===================== Helpers Overpass / Semseg ===================== */
 
-// Helpers Overpass (grupos)
 function resolveHighwayGroups(tokens: string[]): string[] {
   const out = new Set<string>();
   for (const tok of tokens) {
@@ -163,8 +171,10 @@ function echoParams(q: URLSearchParams) {
   return out;
 }
 
+/* ===================== Service ===================== */
+
 export class SearchLinksService {
-  // wrapper para manter compat com o controller
+  // wrapper para manter compatibilidade com o controller
   static async executeFromURL(rawUrl: string) {
     return this.search(rawUrl);
   }
@@ -184,7 +194,8 @@ export class SearchLinksService {
       const perPage = Math.max(1, Math.min(1000, Number(q.get('per_page') || '100')));
       console.log(`[SearchLinksService] pagination: page=${page}, per_page=${perPage}`);
 
-      // Filtros de blocks_5min
+      /* -------- blocos 5min -------- */
+
       const bVehicle   = splitList(q.get('b.vehicle'));
       const bPeriod    = splitList(q.get('b.period'));
       const bCondition = splitList(q.get('b.condition'));
@@ -250,7 +261,7 @@ export class SearchLinksService {
       console.log('[SearchLinksService] YOLO filters:', { yClasses, yRel });
       console.log('[SearchLinksService] allowedExts:', allowedExts);
 
-      // ===== 1) blocks_5min =====
+      // 1) blocks_5min → universo de aquisições
       const blocks = await prisma.blocks_5min.findMany({
         where: {
           ...(bVehicle.length   ? { vehicle:   { in: bVehicle   } } : {}),
@@ -265,8 +276,8 @@ export class SearchLinksService {
 
       t = stamp('blocks_5min.findMany', t, `rows=${blocks.length}`);
       const acqIds = [...new Set(blocks.map(b => b.acq_id))];
-
       console.log(`[SearchLinksService] acqIds (filtered) = ${acqIds.length}`);
+
       if (!acqIds.length) {
         console.log('[SearchLinksService] sem aquisições após filtros de bloco, encerrando cedo.');
         console.log(`[SearchLinksService] total elapsed = ${Date.now() - t0}ms`);
@@ -278,11 +289,9 @@ export class SearchLinksService {
         };
       }
 
-      const acqUniverse = acqIds;
+      const acqUniverse = acqIds.map(String);
 
-      // ===== 2) filtros 1Hz =====
-      let secondsMap: Map<string, Set<number>> | null = null;
-
+      // 2) Detectar se há filtros 1 Hz
       const laneFiltersActive = lLeft.length || lRight.length;
       const canActive         = !!cVRange || cSwaRanges.length > 0 || cBrakes.length > 0;
       const yoloActive        = yClasses.length > 0 || yRel.length > 0;
@@ -290,6 +299,100 @@ export class SearchLinksService {
                                 oLanes.length > 0 || oMaxspeed.length > 0 || oOneway.length > 0 ||
                                 oSidewalk.length > 0 || oCycleway.length > 0;
       const semsegActive      = !!sBuildingRange || !!sVegetationRange;
+
+      const anyFilters1Hz = laneFiltersActive || canActive || yoloActive || overpassActive || semsegActive;
+
+      /* ========== CAMINHO RÁPIDO (SEM FILTROS 1 Hz) ========== */
+
+      if (!anyFilters1Hz) {
+        console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → caminho rápido de preview por aquisição.');
+        // Para cada acq_id, busca poucas imagens:
+        // - até 3 primeiras (sec asc)
+        // - até 3 últimas (sec desc)
+        // - junta, ordena, sampleEvenly para até 5 (início/meio/fim aproximado)
+        type LinkRow = { acq_id: any; sec: number | null; ext: string | null; link: string };
+        const preview: LinkRow[] = [];
+
+        for (const acq of acqUniverse) {
+          // Primeiras
+          const first = await prisma.links.findMany({
+            where: {
+              acq_id: acq,
+              ext: { in: allowedExts },
+              sec: { not: null },
+            },
+            orderBy: { sec: 'asc' },
+            take: MAX_IMG_PER_ACQ,
+            select: { acq_id: true, sec: true, ext: true, link: true },
+          });
+
+          // Últimas
+          const last = await prisma.links.findMany({
+            where: {
+              acq_id: acq,
+              ext: { in: allowedExts },
+              sec: { not: null },
+            },
+            orderBy: { sec: 'desc' },
+            take: MAX_IMG_PER_ACQ,
+            select: { acq_id: true, sec: true, ext: true, link: true },
+          });
+
+          // Merge por sec (para evitar duplicatas) + ordenar
+          const bySec = new Map<number, LinkRow>();
+          for (const r of first.concat(last)) {
+            if (r.sec == null) continue;
+            bySec.set(r.sec, r);
+          }
+
+          const merged = [...bySec.values()].sort((a, b) => (a.sec ?? 0) - (b.sec ?? 0));
+          if (!merged.length) continue;
+
+          const sampled = sampleEvenly(merged, Math.min(MAX_IMG_PER_ACQ, merged.length));
+          preview.push(...sampled);
+        }
+
+        const totalLinks = preview.length;
+        const totalPages = Math.max(1, Math.ceil(totalLinks / perPage));
+        const start = (page - 1) * perPage;
+        const end   = start + perPage;
+        const pageDocs = preview.slice(start, end);
+        const hasMore  = page < totalPages;
+
+        console.log(
+          `[SearchLinksService] FAST PREVIEW: acq_ids=${acqUniverse.length}, total_preview_links=${totalLinks}`
+        );
+        console.log(
+          `[SearchLinksService] page_info = page=${page}, per_page=${perPage}, docs_page=${pageDocs.length}`
+        );
+        console.log(`[SearchLinksService] total elapsed = ${Date.now() - t0}ms`);
+
+        return {
+          filters_echo: echoParams(q),
+          counts: {
+            matched_acq_ids: acqUniverse.length,
+            matched_seconds: totalLinks, // aqui só contamos os segundos amostrados
+            total_links: totalLinks,     // total de links retornados (preview)
+          },
+          page_info: {
+            page,
+            per_page: perPage,
+            has_more: hasMore,
+            total: totalLinks,
+            total_pages: totalPages,
+          },
+          documents: pageDocs.map(d => ({
+            acq_id: String(d.acq_id),
+            sec: d.sec ?? null,
+            ext: d.ext ?? undefined,
+            link: d.link,
+          })),
+        };
+      }
+
+      /* ========== CAMINHO COMPLETO (COM FILTROS 1 Hz) ========== */
+
+      let secondsMap: Map<string, Set<number>> | null = null;
 
       // laneego_1hz
       if (laneFiltersActive) {
@@ -501,51 +604,7 @@ export class SearchLinksService {
         console.log(`[SearchLinksService] after SemSeg intersect: acq_ids=${secondsMap.size}`);
       }
 
-      // Nenhum filtro 1Hz: amostra segundos direto em links
-      if (!secondsMap) {
-        console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → amostrar segundos direto em links.jpg (ext=jpg, sec!=null)');
-        secondsMap = new Map<string, Set<number>>();
-
-        if (!acqUniverse.length) {
-          console.log('[SearchLinksService] acqUniverse vazio no fallback de segundos, nada a amostrar.');
-        } else {
-          const rows = await prisma.links.findMany({
-            where: {
-              acq_id: { in: acqUniverse },
-              ext: 'jpg',
-              sec: { not: null },
-            },
-            select: {
-              acq_id: true,
-              sec: true,
-            },
-          });
-
-          t = stamp('links.seconds fallback via findMany', t, `rows=${rows.length}`);
-
-          for (const p of rows) {
-            if (p.sec == null) continue;
-            const acq = String(p.acq_id);
-            if (!secondsMap.has(acq)) secondsMap.set(acq, new Set());
-            secondsMap.get(acq)!.add(p.sec);
-          }
-        }
-      }
-
-      const matchedAcq = [...secondsMap.keys()].filter(k => secondsMap!.get(k)!.size > 0);
-      const matchedSecondsCount = [...secondsMap.values()].reduce((s, set) => s + set.size, 0);
-      console.log(`[SearchLinksService] matchedAcq_ids=${matchedAcq.length}, matchedSeconds=${matchedSecondsCount}`);
-
-      const laneFiltersActive2 = lLeft.length || lRight.length;
-      const canActive2         = !!cVRange || cSwaRanges.length > 0 || cBrakes.length > 0;
-      const yoloActive2        = yClasses.length > 0 || yRel.length > 0;
-      const overpassActive2    = oHighway.length > 0 || oLanduse.length > 0 || oSurfaceTokens.length > 0 ||
-                                oLanes.length > 0 || oMaxspeed.length > 0 || oOneway.length > 0 ||
-                                oSidewalk.length > 0 || oCycleway.length > 0;
-      const semsegActive2      = !!sBuildingRange || !!sVegetationRange;
-      const anyFilters1Hz = laneFiltersActive2 || canActive2 || yoloActive2 || overpassActive2 || semsegActive2;
-
-      if (!matchedAcq.length && anyFilters1Hz) {
+      if (!secondsMap || secondsMap.size === 0) {
         console.log('[SearchLinksService] matchedAcq vazio após filtros 1Hz, encerrando cedo.');
         console.log(`[SearchLinksService] total elapsed = ${Date.now() - t0}ms`);
         return {
@@ -556,10 +615,14 @@ export class SearchLinksService {
         };
       }
 
-      const finalAcq = matchedAcq.length ? matchedAcq : acqUniverse.map(String);
+      const matchedAcq = [...secondsMap.keys()].filter(k => secondsMap!.get(k)!.size > 0);
+      const matchedSecondsCount = [...secondsMap.values()].reduce((s, set) => s + set.size, 0);
+      console.log(`[SearchLinksService] matchedAcq_ids=${matchedAcq.length}, matchedSeconds=${matchedSecondsCount}`);
+
+      const finalAcq = matchedAcq.length ? matchedAcq : acqUniverse;
       console.log(`[SearchLinksService] finalAcq_ids=${finalAcq.length}`);
 
-      // ===== 3) Amostragem de segundos por acq_id =====
+      // 3) Amostragem de segundos: até MAX_IMG_PER_ACQ por aquisição
       const sampledSecondsByAcq = new Map<string, number[]>();
       for (const acq of finalAcq) {
         const secSet = secondsMap.get(String(acq));
@@ -593,7 +656,7 @@ export class SearchLinksService {
         };
       }
 
-      // ===== 4) links.findMany só com secs amostrados =====
+      // 4) links.findMany com segundos amostrados (já filtrados pelos 1 Hz)
       const allLinks = await prisma.links.findMany({
         where: {
           acq_id: { in: finalAcq },
@@ -607,7 +670,7 @@ export class SearchLinksService {
           link: true,
         },
       });
-      t = stamp('links.findMany (amostrado)', t, `rows=${allLinks.length}`);
+      t = stamp('links.findMany (amostrado 1Hz)', t, `rows=${allLinks.length}`);
 
       const totalLinks = allLinks.length;
       const totalPages = Math.max(1, Math.ceil(totalLinks / perPage));
@@ -648,7 +711,7 @@ export class SearchLinksService {
 
       return result;
     } finally {
-      // mantém prisma vivo
+      // mantém prisma vivo (conexão compartilhada)
     }
   }
 }
