@@ -226,29 +226,26 @@ export class SearchLinksService {
       const oHighway = resolveHighwayGroups(oHighwayTokens);
       const oLanduse = resolveLanduseGroups(oLanduseTokens);
 
-      // Filtros SemSeg
-      const sBuildingTok = q.get('s.building');
-      const sVegetationTok = q.get('s.vegetation');
+      // Filtros SemSeg (AGORA aceitam múltiplos níveis por campo)
+      const sBuildingTokens = splitList(q.get('s.building'));
+      const sVegetationTokens = splitList(q.get('s.vegetation'));
 
-      const sBuildingRange: Range | undefined = sBuildingTok ? (() => {
-        const base = SEMSEG.building;
-        if (sBuildingTok === 'low') return [0, base.median];
-        if (sBuildingTok === 'mid') return [base.median, base.p75];
-        if (sBuildingTok === 'high') return [base.p75, undefined];
-        return undefined;
-      })() : undefined;
+      function makeSemsegRanges(tokens: string[], base: { p25: number; median: number; p75: number }): Range[] {
+        const ranges: Range[] = [];
+        for (const tok of tokens) {
+          if (tok === 'low') ranges.push([0, base.median]);
+          else if (tok === 'mid') ranges.push([base.median, base.p75]);
+          else if (tok === 'high') ranges.push([base.p75, undefined]);
+        }
+        return ranges;
+      }
 
-      const sVegetationRange: Range | undefined = sVegetationTok ? (() => {
-        const base = SEMSEG.vegetation;
-        if (sVegetationTok === 'low') return [0, base.median];
-        if (sVegetationTok === 'mid') return [base.median, base.p75];
-        if (sVegetationTok === 'high') return [base.p75, undefined];
-        return undefined;
-      })() : undefined;
+      const sBuildingRanges = makeSemsegRanges(sBuildingTokens, SEMSEG.building);
+      const sVegetationRanges = makeSemsegRanges(sVegetationTokens, SEMSEG.vegetation);
 
       // Filtros YOLO
-      const yClasses = splitList(q.get('y.class'));
-      const yRel = splitList(q.get('y.rel'));
+      const yClasses = splitList(q.get('y.class')); // classes = AND por segundo
+      const yRel = splitList(q.get('y.rel'));       // rel_to_ego = OR (mas aplicado junto)
 
       // Extensões aceitas
       const extTokens = splitList(q.get('ext'));
@@ -258,7 +255,12 @@ export class SearchLinksService {
       console.log('[SearchLinksService] CAN filters:', { cVRange, cSwaRanges, cBrakes });
       console.log('[SearchLinksService] laneego filters:', { lLeft, lRight });
       console.log('[SearchLinksService] Overpass filters:', { oHighway, oLanduse, oSurfaceTokens, oLanes, oMaxspeed, oOneway, oSidewalk, oCycleway });
-      console.log('[SearchLinksService] SemSeg filters:', { sBuildingRange, sVegetationRange });
+      console.log('[SearchLinksService] SemSeg filters:', {
+        sBuildingTokens,
+        sVegetationTokens,
+        sBuildingRanges,
+        sVegetationRanges,
+      });
       console.log('[SearchLinksService] YOLO filters:', { yClasses, yRel });
       console.log('[SearchLinksService] allowedExts:', allowedExts);
 
@@ -299,7 +301,7 @@ export class SearchLinksService {
       const overpassActive = oHighway.length > 0 || oLanduse.length > 0 || oSurfaceTokens.length > 0 ||
         oLanes.length > 0 || oMaxspeed.length > 0 || oOneway.length > 0 ||
         oSidewalk.length > 0 || oCycleway.length > 0;
-      const semsegActive = !!sBuildingRange || !!sVegetationRange;
+      const semsegActive = sBuildingRanges.length > 0 || sVegetationRanges.length > 0;
 
       const anyFilters1Hz = laneFiltersActive || canActive || yoloActive || overpassActive || semsegActive;
 
@@ -308,7 +310,6 @@ export class SearchLinksService {
       if (!anyFilters1Hz) {
         console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → caminho rápido de preview por aquisição (aggregate).');
 
-        // Pipeline de aggregate no Mongo para pegar até 5 imagens bem distribuídas por acq_id
         const pipeline: any[] = [
           {
             $match: {
@@ -416,7 +417,6 @@ export class SearchLinksService {
           },
         ];
 
-        // Rodando aggregate bruto via Prisma (Mongo)
         const aggResult: any = await (prisma as any).$runCommandRaw({
           aggregate: "links",
           pipeline,
@@ -572,28 +572,79 @@ export class SearchLinksService {
         console.log(`[SearchLinksService] after CAN intersect: acq_ids=${secondsMap.size}`);
       }
 
-      // yolo_1hz
+      // yolo_1hz (ESPECIAL: classes = AND por segundo)
       if (yClasses.length > 0 || yRel.length > 0) {
-        console.log('[SearchLinksService] Aplicando filtros yolo_1hz...');
-        const rows = await prisma.yolo_1hz.findMany({
-          where: {
-            acq_id: { in: acqUniverse },
-            ...(yClasses.length ? { class: { in: yClasses } } : {}),
-            ...(yRel.length ? { rel_to_ego: { in: yRel } } : {}),
-          },
-          select: { acq_id: true, sec: true },
-        });
-        t = stamp('yolo_1hz.findMany', t, `rows=${rows.length}`);
+        console.log('[SearchLinksService] Aplicando filtros yolo_1hz (AND por segundo em classes)...');
 
-        const ok = new Map<string, Set<number>>();
-        for (const r of rows) {
-          if (r.sec == null) continue;
-          const acq = String(r.acq_id);
-          if (!ok.has(acq)) ok.set(acq, new Set());
-          ok.get(acq)!.add(r.sec);
+        if (yClasses.length === 0) {
+          // Só rel_to_ego → comportamento simples (OR por sec)
+          const rows = await prisma.yolo_1hz.findMany({
+            where: {
+              acq_id: { in: acqUniverse },
+              ...(yRel.length ? { rel_to_ego: { in: yRel } } : {}),
+            },
+            select: { acq_id: true, sec: true },
+          });
+          t = stamp('yolo_1hz.findMany (only rel)', t, `rows=${rows.length}`);
+
+          const ok = new Map<string, Set<number>>();
+          for (const r of rows) {
+            if (r.sec == null) continue;
+            const acq = String(r.acq_id);
+            if (!ok.has(acq)) ok.set(acq, new Set());
+            ok.get(acq)!.add(r.sec);
+          }
+          secondsMap = intersectSeconds(secondsMap, ok);
+          console.log(`[SearchLinksService] after yolo (only rel) intersect: acq_ids=${secondsMap.size}`);
+        } else {
+          // Temos classes → queremos segundos que tenham TODAS as classes selecionadas
+          const rows = await prisma.yolo_1hz.findMany({
+            where: {
+              acq_id: { in: acqUniverse },
+              class: { in: yClasses },
+              ...(yRel.length ? { rel_to_ego: { in: yRel } } : {}),
+            },
+            select: { acq_id: true, sec: true, class: true },
+          });
+          t = stamp('yolo_1hz.findMany (classes AND)', t, `rows=${rows.length}`);
+
+          // Mapa: acq_id -> (sec -> Set<class>)
+          const perAcqSec = new Map<string, Map<number, Set<string>>>();
+
+          for (const r of rows) {
+            if (r.sec == null) continue;
+            const acq = String(r.acq_id);
+            const sec = r.sec;
+            const cls = r.class ?? '';
+
+            if (!perAcqSec.has(acq)) perAcqSec.set(acq, new Map());
+            const secMap = perAcqSec.get(acq)!;
+            if (!secMap.has(sec)) secMap.set(sec, new Set());
+            secMap.get(sec)!.add(cls);
+          }
+
+          const ok = new Map<string, Set<number>>();
+          const needClasses = new Set(yClasses);
+
+          for (const [acq, secMap] of perAcqSec.entries()) {
+            for (const [sec, clsSet] of secMap.entries()) {
+              let allPresent = true;
+              for (const need of needClasses) {
+                if (!clsSet.has(need)) {
+                  allPresent = false;
+                  break;
+                }
+              }
+              if (!allPresent) continue;
+
+              if (!ok.has(acq)) ok.set(acq, new Set());
+              ok.get(acq)!.add(sec);
+            }
+          }
+
+          secondsMap = intersectSeconds(secondsMap, ok);
+          console.log(`[SearchLinksService] after yolo (classes AND) intersect: acq_ids=${secondsMap.size}`);
         }
-        secondsMap = intersectSeconds(secondsMap, ok);
-        console.log(`[SearchLinksService] after yolo intersect: acq_ids=${secondsMap.size}`);
       }
 
       // overpass_1hz
@@ -667,9 +718,9 @@ export class SearchLinksService {
         console.log(`[SearchLinksService] after overpass intersect: acq_ids=${secondsMap.size}`);
       }
 
-      // semseg_1hz
-      if (sBuildingRange || sVegetationRange) {
-        console.log('[SearchLinksService] Aplicando filtros semseg_1hz...');
+      // semseg_1hz (ESPECIAL: ranges múltiplos por campo, AND entre building/vegetation)
+      if (sBuildingRanges.length > 0 || sVegetationRanges.length > 0) {
+        console.log('[SearchLinksService] Aplicando filtros semseg_1hz (AND building/vegetation por segundo)...');
         const rows = await prisma.semseg_1hz.findMany({
           where: {
             acq_id: { in: acqUniverse },
@@ -689,15 +740,27 @@ export class SearchLinksService {
           const acq = String(r.acq_id);
 
           let bOK = true;
-          if (sBuildingRange) {
-            const [lo, hi] = sBuildingRange;
-            bOK = inRange(r.building as any, lo, hi);
+          if (sBuildingRanges.length) {
+            bOK = false;
+            for (const [lo, hi] of sBuildingRanges) {
+              if (inRange(r.building as any, lo, hi)) {
+                bOK = true;
+                break;
+              }
+            }
           }
+
           let vOK = true;
-          if (sVegetationRange) {
-            const [lo, hi] = sVegetationRange;
-            vOK = inRange(r.vegetation as any, lo, hi);
+          if (sVegetationRanges.length) {
+            vOK = false;
+            for (const [lo, hi] of sVegetationRanges) {
+              if (inRange(r.vegetation as any, lo, hi)) {
+                vOK = true;
+                break;
+              }
+            }
           }
+
           if (bOK && vOK) {
             if (!ok.has(acq)) ok.set(acq, new Set());
             ok.get(acq)!.add(r.sec);
