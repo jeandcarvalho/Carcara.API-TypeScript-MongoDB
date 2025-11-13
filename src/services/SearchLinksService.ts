@@ -3,6 +3,17 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Número máximo de imagens (jpg) por aquisição
+const MAX_IMG_PER_ACQ = 5;
+
+// Helper de tempo/log
+function stamp(label: string, prev: number, extra?: string) {
+  const now = Date.now();
+  const delta = now - prev;
+  console.log(`[SearchLinksService] ${label} ${extra ? `(${extra})` : ''} +${delta}ms`);
+  return now;
+}
+
 // ===== Helpers de parsing (iguais ao front) =====
 function splitList(v?: string | null) {
   if (!v) return [];
@@ -94,10 +105,23 @@ export class SearchLinksService {
    * Recebe a URL da API (ex: /api/search?...), parseia os params e executa:
    * 1) blocks_5min → limita acq_id
    * 2) coleções 1Hz ativas → filtra & INTERSECTA segundos
-   * 3) links → retorna todos documentos (sec=null e sec∈set), paginados
-   *    **Filtro final**: limitar a 5 imagens (ext=jpg) por acq_id, com amostragem uniforme.
+   * 3) links → retorna documentos (sec∈set), paginados
+   *    **Filtro final direto na query**: até 5 imagens (ext=jpg) por acq_id,
+   *    escolhendo até 5 segundos amostrados de secondsMap (sem sec=null).
+   *
+   * Logs:
+   *  - início da requisição
+   *  - tempo e linhas de cada query
+   *  - filtros aplicados
+   *  - resultado final + tempo total
    */
   async executeFromURL(rawUrl: string) {
+    const t0 = Date.now();
+    let t = t0;
+
+    console.log('\n[SearchLinksService] ===== New search request =====');
+    console.log(`[SearchLinksService] rawUrl = ${rawUrl}`);
+
     try {
       const url = new URL(rawUrl, 'http://localhost'); // base dummy só pra parsear
       const q = url.searchParams;
@@ -105,6 +129,7 @@ export class SearchLinksService {
       // ====== 0) paginação ======
       const page = Math.max(1, Number(q.get('page') || 1));
       const perPage = Math.max(1, Math.min(500, Number(q.get('per_page') || 100)));
+      console.log(`[SearchLinksService] pagination: page=${page}, per_page=${perPage}`);
 
       // ====== 1) BLOCO 5 MIN (b.*) ======
       const bVehicle = q.get('b.vehicle') || undefined;
@@ -116,18 +141,29 @@ export class SearchLinksService {
       if (bPeriod) whereBlocks.period = bPeriod;
       if (bCondition) whereBlocks.condition = bCondition;
 
+      console.log('[SearchLinksService] blocks_5min filters:', whereBlocks);
+
       const blocks = await prisma.blocks_5min.findMany({
         where: whereBlocks,
         select: { acq_id: true },
       });
+      t = stamp('blocks_5min.findMany', t, `rows=${blocks.length}`);
 
       const acqIds = [...new Set(blocks.map(b => b.acq_id))];
 
       const acqUniverse = acqIds.length
         ? acqIds
         : (await prisma.blocks_5min.findMany({ select: { acq_id: true } })).map(b => b.acq_id);
+      if (!acqIds.length) {
+        t = stamp('blocks_5min.findMany (fallback universe)', t, `rows=${acqUniverse.length}`);
+      }
+
+      console.log(`[SearchLinksService] acqIds (filtered) = ${acqIds.length}`);
+      console.log(`[SearchLinksService] acqUniverse (used) = ${acqUniverse.length}`);
 
       if (!acqUniverse.length) {
+        console.log('[SearchLinksService] acqUniverse vazio, encerrando cedo.');
+        console.log(`[SearchLinksService] total elapsed = ${Date.now() - t0}ms`);
         return {
           filters_echo: echoParams(q),
           counts: { matched_acq_ids: 0, matched_seconds: 0, total_links: 0 },
@@ -143,11 +179,15 @@ export class SearchLinksService {
       const lLeft = splitList(q.get('l.left_disp'));
       const lRight = splitList(q.get('l.right_disp'));
       const laneFiltersActive = !!(lLeft.length || lRight.length);
+      console.log(`[SearchLinksService] laneego filters: left=${lLeft.join('|')}, right=${lRight.join('|')}`);
+
       if (laneFiltersActive) {
         const rs = await prisma.laneego_1hz.findMany({
           where: { acq_id: { in: acqUniverse } },
           select: { acq_id: true, sec: true, left_disp: true, right_disp: true }
         });
+        t = stamp('laneego_1hz.findMany', t, `rows=${rs.length}`);
+
         const ok = new Map<string, Set<number>>();
         for (const r of rs) {
           const okLeft = !lLeft.length || (r.left_disp && lLeft.includes(r.left_disp));
@@ -158,21 +198,24 @@ export class SearchLinksService {
           }
         }
         secondsMap = ok;
+        console.log(`[SearchLinksService] laneego secondsMap acq_ids=${secondsMap.size}`);
       }
 
       // ---- CAN (c.VehicleSpeed, c.SteeringWheelAngle, c.BrakeInfoStatus) ----
       const vRange = parseRange(q.get('c.VehicleSpeed'));
       const swaTok = q.get('c.SteeringWheelAngle');
-      const swaRanges = splitList(swaTok)
-        .map(t => parseRange(t))
-        .filter((r): r is [number|undefined, number|undefined] => !!r);
+      const swaRanges = splitList(swaTok).map(tk => parseRange(tk)).filter(Boolean) as Array<[number|undefined, number|undefined]>;
       const brakes = splitList(q.get('c.BrakeInfoStatus'));
       const canActive = !!(vRange || swaRanges.length || brakes.length);
+      console.log('[SearchLinksService] CAN filters:', { vRange, swaRanges, brakes });
+
       if (canActive) {
         const rs = await prisma.can_1hz.findMany({
           where: { acq_id: { in: acqUniverse } },
           select: { acq_id: true, sec: true, VehicleSpeed: true, SteeringWheelAngle: true, BrakeInfoStatus: true }
         });
+        t = stamp('can_1hz.findMany', t, `rows=${rs.length}`);
+
         const ok = new Map<string, Set<number>>();
         for (const r of rs) {
           const speedOK = !vRange || inRange(r.VehicleSpeed ?? null, vRange[0], vRange[1]);
@@ -184,6 +227,7 @@ export class SearchLinksService {
           }
         }
         secondsMap = intersectSeconds(secondsMap, ok);
+        console.log(`[SearchLinksService] after CAN intersect: acq_ids=${secondsMap.size}`);
       }
 
       // ---- YOLO (y.class, y.rel_to_ego, y.conf, y.dist_m) ----
@@ -192,6 +236,8 @@ export class SearchLinksService {
       const yConfR = parseRange(q.get('y.conf'));
       const yDistR = parseRange(q.get('y.dist_m'));
       const yoloActive = !!(yClasses.length || yRel.length || yConfR || yDistR);
+      console.log('[SearchLinksService] YOLO filters:', { yClasses, yRel, yConfR, yDistR });
+
       if (yoloActive) {
         const rs = await prisma.yolo_1hz.findMany({
           where: {
@@ -201,6 +247,8 @@ export class SearchLinksService {
           },
           select: { acq_id: true, sec: true, conf: true, dist_m: true }
         });
+        t = stamp('yolo_1hz.findMany', t, `rows=${rs.length}`);
+
         const ok = new Map<string, Set<number>>();
         for (const r of rs) {
           const confOK = !yConfR || inRange(r.conf ?? null, yConfR[0], yConfR[1]);
@@ -211,6 +259,7 @@ export class SearchLinksService {
           }
         }
         secondsMap = intersectSeconds(secondsMap, ok);
+        console.log(`[SearchLinksService] after YOLO intersect: acq_ids=${secondsMap.size}`);
       }
 
       // ---- Overpass (o.*) ----
@@ -223,16 +272,11 @@ export class SearchLinksService {
       const oSidewalk = splitList(q.get('o.sidewalk'));
       const oCycleway = splitList(q.get('o.cycleway'));
 
-      const overpassActive = !!(
-        oHighwayGroups.length ||
-        oLanduseGroups.length ||
-        oLanes.length ||
-        oMaxspeed.length ||
-        oOneway.length ||
-        oSurface.length ||
-        oSidewalk.length ||
-        oCycleway.length
-      );
+      const overpassActive = !!(oHighwayGroups.length || oLanduseGroups.length || oLanes.length || oMaxspeed.length || oOneway.length || oSurface.length || oSidewalk.length || oCycleway.length);
+      console.log('[SearchLinksService] Overpass filters:', {
+        oHighwayGroups, oLanduseGroups, oLanes, oMaxspeed, oOneway, oSurface, oSidewalk, oCycleway
+      });
+
       if (overpassActive) {
         const highwayVals = new Set<string>();
         for (const g of oHighwayGroups) (GROUPS.highway as any)[g]?.forEach((v: string) => highwayVals.add(v));
@@ -252,6 +296,7 @@ export class SearchLinksService {
           },
           select: { acq_id: true, sec: true, surface: true }
         });
+        t = stamp('overpass_1hz.findMany', t, `rows=${rs.length}`);
 
         const ok = new Map<string, Set<number>>();
         for (const r of rs) {
@@ -273,12 +318,15 @@ export class SearchLinksService {
           }
         }
         secondsMap = intersectSeconds(secondsMap, ok);
+        console.log(`[SearchLinksService] after Overpass intersect: acq_ids=${secondsMap.size}`);
       }
 
       // ---- SemSeg (s.building, s.vegetation) ----
       const sBuildTok = splitList(q.get('s.building'));
       const sVegTok   = splitList(q.get('s.vegetation'));
       const semsegActive = !!(sBuildTok.length || sVegTok.length);
+      console.log('[SearchLinksService] SemSeg filters:', { sBuildTok, sVegTok });
+
       if (semsegActive) {
         const rBuild = semsegTokensToRanges(sBuildTok);
         const rVeg = semsegTokensToRanges(sVegTok);
@@ -287,6 +335,7 @@ export class SearchLinksService {
           where: { acq_id: { in: acqUniverse } },
           select: { acq_id: true, sec: true, building: true, vegetation: true }
         });
+        t = stamp('semseg_1hz.findMany', t, `rows=${rs.length}`);
 
         const ok = new Map<string, Set<number>>();
         for (const r of rs) {
@@ -298,15 +347,19 @@ export class SearchLinksService {
           }
         }
         secondsMap = intersectSeconds(secondsMap, ok);
+        console.log(`[SearchLinksService] after SemSeg intersect: acq_ids=${secondsMap.size}`);
       }
 
       // Nenhum filtro 1Hz: aceitar todos os segundos existentes em links.jpg
       if (!secondsMap) {
+        console.log('[SearchLinksService] Nenhum filtro 1Hz ativo → usar todos segundos de links.jpg (ext=jpg, sec!=null)');
         secondsMap = new Map<string, Set<number>>();
         const photos = await prisma.links.findMany({
           where: { acq_id: { in: acqUniverse }, ext: 'jpg' },
           select: { acq_id: true, sec: true }
         });
+        t = stamp('links.findMany (seconds fallback)', t, `rows=${photos.length}`);
+
         for (const p of photos) {
           if (p.sec == null) continue;
           if (!secondsMap.has(p.acq_id)) secondsMap.set(p.acq_id, new Set());
@@ -316,8 +369,13 @@ export class SearchLinksService {
 
       const matchedAcq = [...secondsMap.keys()].filter(k => secondsMap!.get(k)!.size > 0);
       const matchedSecondsCount = [...secondsMap.values()].reduce((s, set) => s + set.size, 0);
+      console.log(`[SearchLinksService] matchedAcq_ids=${matchedAcq.length}, matchedSeconds=${matchedSecondsCount}`);
 
-      if (!matchedAcq.length && (laneFiltersActive || canActive || yoloActive || overpassActive || semsegActive)) {
+      const anyFilters1Hz = laneFiltersActive || canActive || yoloActive || overpassActive || semsegActive;
+
+      if (!matchedAcq.length && anyFilters1Hz) {
+        console.log('[SearchLinksService] matchedAcq vazio após filtros 1Hz, encerrando cedo.');
+        console.log(`[SearchLinksService] total elapsed = ${Date.now() - t0}ms`);
         return {
           filters_echo: echoParams(q),
           counts: { matched_acq_ids: 0, matched_seconds: 0, total_links: 0 },
@@ -327,21 +385,54 @@ export class SearchLinksService {
       }
 
       const finalAcq = matchedAcq.length ? matchedAcq : acqUniverse;
+      console.log(`[SearchLinksService] finalAcq_ids=${finalAcq.length}`);
 
-      // Puxa todos os links dessas acquisições
+      // ===== NOVO: escolher no máximo 5 segundos por acq_id (amostragem) =====
+      const sampledSecondsByAcq = new Map<string, number[]>();
+      for (const acq of finalAcq) {
+        const secSet = secondsMap.get(acq);
+        if (!secSet || secSet.size === 0) continue;
+        const secsSorted = [...secSet].sort((a,b) => a - b);
+        const sampled = sampleEvenly(secsSorted, MAX_IMG_PER_ACQ);
+        sampledSecondsByAcq.set(acq, sampled);
+      }
+
+      console.log('[SearchLinksService] sampledSecondsByAcq sizes:',
+        Array.from(sampledSecondsByAcq.entries()).map(([acq, secs]) => `${acq}:${secs.length}`).join(', ')
+      );
+
+      const orConds: any[] = [];
+      for (const [acq, secs] of sampledSecondsByAcq.entries()) {
+        if (!secs.length) continue;
+        orConds.push({ acq_id: acq, sec: { in: secs } });
+      }
+
+      if (!orConds.length) {
+        console.log('[SearchLinksService] orConds vazio após sampling, nenhuma imagem para puxar.');
+        console.log(`[SearchLinksService] total elapsed = ${Date.now() - t0}ms`);
+        return {
+          filters_echo: echoParams(q),
+          counts: { matched_acq_ids: finalAcq.length, matched_seconds: matchedSecondsCount, total_links: 0 },
+          page_info: { page, per_page: perPage, has_more: false },
+          documents: [],
+        };
+      }
+
+      // ===== 3) Puxa apenas jpg, apenas secs amostrados (sem sec=null) =====
       const allLinks = await prisma.links.findMany({
-        where: { acq_id: { in: finalAcq } },
+        where: {
+          ext: 'jpg',
+          OR: orConds,
+        },
         select: { acq_id: true, sec: true, ext: true, link: true },
       });
+      t = stamp('links.findMany (sampled jpg only)', t, `rows=${allLinks.length}`);
 
-      // Mantém: (sec == null) sempre; (sec != null) só se estiver no set do acq_id
-      const filteredDocs = allLinks.filter(doc => {
-        if (doc.sec == null) return true;
-        const set = secondsMap!.get(doc.acq_id);
-        return set ? set.has(doc.sec) : false;
-      });
+      // Não precisa mais filtrar por secondsMap aqui, pois o OR já faz isso.
+      const filteredDocs = allLinks.slice();
+      console.log(`[SearchLinksService] filteredDocs (sampled) = ${filteredDocs.length}`);
 
-      // Ordena (acq_id, sec null primeiro, depois sec crescente)
+      // Ordena (acq_id, sec crescente)
       filteredDocs.sort((a, b) => {
         if (a.acq_id !== b.acq_id) return a.acq_id < b.acq_id ? -1 : 1;
         if (a.sec == null && b.sec == null) return 0;
@@ -350,56 +441,12 @@ export class SearchLinksService {
         return a.sec - b.sec;
       });
 
-      // ===== Filtro final: limitar 5 imagens (ext=jpg) por acq_id, com amostragem uniforme =====
-      const MAX_IMG_PER_ACQ = 5;
-      const byAcq = new Map<string, typeof filteredDocs>();
-      for (const d of filteredDocs) {
-        if (!byAcq.has(d.acq_id)) byAcq.set(d.acq_id, []);
-        byAcq.get(d.acq_id)!.push(d);
-      }
-
-      const limitedDocs: typeof filteredDocs = [];
-      for (const [acq, docs] of byAcq.entries()) {
-        const images = docs.filter(d => (d.ext?.toLowerCase?.() === 'jpg'));
-        const nonImages = docs.filter(d => (d.ext?.toLowerCase?.() !== 'jpg'));
-
-        let keptImages = images;
-        if (images.length > MAX_IMG_PER_ACQ) {
-          keptImages = sampleEvenly(images, MAX_IMG_PER_ACQ);
-          keptImages.sort((a, b) => {
-            if (a.sec == null && b.sec == null) return 0;
-            if (a.sec == null) return -1;
-            if (b.sec == null) return 1;
-            return a.sec - b.sec;
-          });
-        }
-
-        const merged = [...nonImages, ...keptImages];
-        merged.sort((a, b) => {
-          if (a.sec == null && b.sec == null) return 0;
-          if (a.sec == null) return -1;
-          if (b.sec == null) return 1;
-          return a.sec - b.sec;
-        });
-
-        limitedDocs.push(...merged);
-      }
-
-      // Reordena entre acquisições
-      limitedDocs.sort((a, b) => {
-        if (a.acq_id !== b.acq_id) return a.acq_id < b.acq_id ? -1 : 1;
-        if (a.sec == null && b.sec == null) return 0;
-        if (a.sec == null) return -1;
-        if (b.sec == null) return 1;
-        return a.sec - b.sec;
-      });
-
-      const totalLinks = limitedDocs.length;
+      const totalLinks = filteredDocs.length;
       const start = (page - 1) * perPage;
       const end = Math.min(start + perPage, totalLinks);
-      const pageDocs = limitedDocs.slice(start, end);
+      const pageDocs = filteredDocs.slice(start, end);
 
-      return {
+      const result = {
         filters_echo: echoParams(q),
         counts: {
           matched_acq_ids: finalAcq.length,
@@ -418,6 +465,12 @@ export class SearchLinksService {
           link: d.link,
         })),
       };
+
+      console.log(`[SearchLinksService] RESULT counts = acq_ids=${finalAcq.length}, seconds=${matchedSecondsCount}, total_links=${totalLinks}`);
+      console.log(`[SearchLinksService] page_info = page=${page}, per_page=${perPage}, docs_page=${pageDocs.length}`);
+      console.log(`[SearchLinksService] total elapsed = ${Date.now() - t0}ms`);
+
+      return result;
     } finally {
       await prisma.$disconnect();
     }
