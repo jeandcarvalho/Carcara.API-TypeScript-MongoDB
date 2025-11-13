@@ -123,7 +123,7 @@ export class SearchLinksService {
     console.log(`[SearchLinksService] rawUrl = ${rawUrl}`);
 
     try {
-      const url = new URL(rawUrl, 'http://localhost'); // base dummy só pra parsear
+      const url = new URL(rawUrl, 'https://carcara-web-api.onrender.com'); // base dummy só pra parsear
       const q = url.searchParams;
 
       // ====== 0) paginação ======
