@@ -11,45 +11,26 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routes = void 0;
 const ListFilesController_1 = require("./controllers/ListFilesController");
-const ListCarController_1 = require("./controllers/ListCarController");
-const ListGeoController_1 = require("./controllers/ListGeoController");
-const ListCoordController_1 = require("./controllers/ListCoordController");
-const ListVehicleController_1 = require("./controllers/ListVehicleController");
-const ListVideosController_1 = require("./controllers/ListVideosController");
 const HomeController_1 = require("./controllers/HomeController");
 const ListCounterController_1 = require("./controllers/ListCounterController");
-const ListCoordFullController_1 = require("./controllers/ListCoordFullController");
+const SearchLinksController_1 = require("./controllers/SearchLinksController");
 function routes(fastify, options) {
     return __awaiter(this, void 0, void 0, function* () {
+        // rota de listagem de arquivos
         fastify.get("/videofiles", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListFilesController_1.ListFilesController().handle(request, reply);
         }));
-        fastify.get("/measurements", (request, reply) => __awaiter(this, void 0, void 0, function* () {
-            return new ListCarController_1.ListCarController().handle(request, reply);
-        }));
-        fastify.get("/geodata", (request, reply) => __awaiter(this, void 0, void 0, function* () {
-            return new ListGeoController_1.ListGeoController().handle(request, reply);
-        }));
-        fastify.get("/coordinates", (request, reply) => __awaiter(this, void 0, void 0, function* () {
-            return new ListCoordController_1.ListCoordController().handle(request, reply);
-        }));
-        fastify.get("/vehicle", (request, reply) => __awaiter(this, void 0, void 0, function* () {
-            return new ListVehicleController_1.ListVehicleController().handle(request, reply);
-        }));
-        fastify.get("/videofiless", (request, reply) => __awaiter(this, void 0, void 0, function* () {
-            return new ListVideosController_1.ListVideosController().handle(request, reply);
-        }));
+        // contador principal (POST)
         fastify.post("/homecounter", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new HomeController_1.HomeController().handle(request, reply);
         }));
+        // contador (GET)
         fastify.get("/counter", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListCounterController_1.ListCounterController().handle(request, reply);
         }));
-        fastify.get("/speed", (request, reply) => __awaiter(this, void 0, void 0, function* () {
-            return new ListCounterController_1.ListCounterController().handle(request, reply);
-        }));
-        fastify.get("/coordinatesfull", (request, reply) => __awaiter(this, void 0, void 0, function* () {
-            return new ListCoordFullController_1.ListCoordFullController().handle(request, reply);
+        // 🔍 nova rota de busca complexa CarCará
+        fastify.get("/api/search", (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new SearchLinksController_1.SearchLinksController().handle(request, reply);
         }));
     });
 }

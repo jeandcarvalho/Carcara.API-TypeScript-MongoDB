@@ -9,27 +9,18 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ListCoordFullService = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
-class ListCoordFullService {
-    execute(page, pageSize, searchString) {
+exports.SearchLinksController = void 0;
+const SearchLinksService_1 = require("../services/SearchLinksService");
+class SearchLinksController {
+    handle(request, reply) {
+        var _a;
         return __awaiter(this, void 0, void 0, function* () {
-            try {
-                const skip = (page - 1) * pageSize;
-                const where = searchString ? { FileName: { contains: searchString } } : {};
-                const filesdatas = yield prisma.coordinatesMap.findMany({
-                    where,
-                    skip,
-                    take: pageSize,
-                });
-                return filesdatas;
-            }
-            catch (error) {
-                console.error('Erro ao buscar dados:', error);
-                return [];
-            }
+            const service = new SearchLinksService_1.SearchLinksService();
+            // request.raw.url traz "/api/search?..." mesmo atrás de proxies
+            const rawUrl = ((_a = request.raw) === null || _a === void 0 ? void 0 : _a.url) || request.url;
+            const result = yield service.executeFromURL(rawUrl);
+            reply.send(result);
         });
     }
 }
-exports.ListCoordFullService = ListCoordFullService;
+exports.SearchLinksController = SearchLinksController;

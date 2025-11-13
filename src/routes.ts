@@ -1,47 +1,28 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from "fastify";
 import { ListFilesController } from "./controllers/ListFilesController";
-import { ListCarController } from "./controllers/ListCarController";
-import { ListGeoController } from "./controllers/ListGeoController";
-import { ListCoordController } from "./controllers/ListCoordController";
-import { ListVehicleController } from "./controllers/ListVehicleController";
-import { ListVideosController } from "./controllers/ListVideosController";
 import { HomeController } from "./controllers/HomeController";
 import { ListCounterController } from "./controllers/ListCounterController";
-import { ListCoordFullController } from "./controllers/ListCoordFullController";
+import { SearchLinksController } from "./controllers/SearchLinksController";
 
-export async function routes(fastify: FastifyInstance, options: FastifyPluginOptions)
-{
+export async function routes(fastify: FastifyInstance, options: FastifyPluginOptions) {
+
+    // rota de listagem de arquivos
     fastify.get("/videofiles", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new ListFilesController().handle(request, reply)
-    })         
-    fastify.get("/measurements", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new ListCarController().handle(request, reply)
-    })
-    fastify.get("/geodata", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new ListGeoController().handle(request, reply)
-    })
-    fastify.get("/coordinates", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new ListCoordController().handle(request, reply)
-    })
-    fastify.get("/vehicle", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new ListVehicleController().handle(request, reply)
-    })
-    fastify.get("/videofiless", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new ListVideosController().handle(request, reply)
-    })
+        return new ListFilesController().handle(request, reply);
+    });
+
+    // contador principal (POST)
     fastify.post("/homecounter", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new HomeController().handle(request, reply)
-    })
+        return new HomeController().handle(request, reply);
+    });
+
+    // contador (GET)
     fastify.get("/counter", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new ListCounterController().handle(request, reply)
-    })
-    fastify.get("/speed", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new ListCounterController().handle(request, reply)
-    })
-    fastify.get("/coordinatesfull", async (request: FastifyRequest, reply: FastifyReply) => {
-        return new ListCoordFullController().handle(request, reply)
-    })
+        return new ListCounterController().handle(request, reply);
+    });
 
-
+    // 🔍 nova rota de busca complexa CarCará
+    fastify.get("/api/search", async (request: FastifyRequest, reply: FastifyReply) => {
+        return new SearchLinksController().handle(request, reply);
+    });
 }
-
