@@ -174,7 +174,9 @@ class SearchLinksService {
                 // ---- CAN (c.VehicleSpeed, c.SteeringWheelAngle, c.BrakeInfoStatus) ----
                 const vRange = parseRange(q.get('c.VehicleSpeed'));
                 const swaTok = q.get('c.SteeringWheelAngle');
-                const swaRanges = splitList(swaTok).map(t => parseRange(t)).filter(Boolean);
+                const swaRanges = splitList(swaTok)
+                    .map(t => parseRange(t))
+                    .filter((r) => !!r);
                 const brakes = splitList(q.get('c.BrakeInfoStatus'));
                 const canActive = !!(vRange || swaRanges.length || brakes.length);
                 if (canActive) {
@@ -227,7 +229,14 @@ class SearchLinksService {
                 const oSurface = splitList(q.get('o.surface'));
                 const oSidewalk = splitList(q.get('o.sidewalk'));
                 const oCycleway = splitList(q.get('o.cycleway'));
-                const overpassActive = !!(oHighwayGroups.length || oLanduseGroups.length || oLanes.length || oMaxspeed.length || oOneway.length || oSurface.length || oSidewalk.length || oCycleway.length);
+                const overpassActive = !!(oHighwayGroups.length ||
+                    oLanduseGroups.length ||
+                    oLanes.length ||
+                    oMaxspeed.length ||
+                    oOneway.length ||
+                    oSurface.length ||
+                    oSidewalk.length ||
+                    oCycleway.length);
                 if (overpassActive) {
                     const highwayVals = new Set();
                     for (const g of oHighwayGroups)
