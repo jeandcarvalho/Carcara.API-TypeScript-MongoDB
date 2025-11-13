@@ -244,15 +244,27 @@ export class SearchLinksService {
         return undefined;
       })() : undefined;
 
-      const sVegetationRange: Range | undefined = sVegetationTok ? (() => {
-        const parsed = parseRange(sVegetationTok);
-        if (parsed) return parsed;
-        const base = SEMSEG.vegetation;
-        if (sVegetationTok === 'low') return [0, base.median];
-        if (sVegetationTok === 'mid') return [base.median, base.p75];
-        if (sVegetationTok === 'high') return [base.p75, undefined];
-        return undefined;
-      })() : undefined;
+      // Vegetation pode vir como múltiplos ranges separados por vírgula (ex.: "..7.99,7.99..50.41")
+      const sVegetationRanges: Range[] = sVegetationTok ? (() => {
+        const parts = sVegetationTok.split(',');
+        const ranges: Range[] = [];
+        for (const part of parts) {
+          const tok = part.trim();
+          if (!tok) continue;
+          // Tenta como range explícito (ex.: "10..30", "..50", "20..")
+          const parsed = parseRange(tok);
+          if (parsed) {
+            ranges.push(parsed);
+            continue;
+          }
+          // Compatibilidade com low/mid/high (útil se vier só um token simbólico)
+          const base = SEMSEG.vegetation;
+          if (tok === 'low') ranges.push([0, base.median]);
+          else if (tok === 'mid') ranges.push([base.median, base.p75]);
+          else if (tok === 'high') ranges.push([base.p75, undefined]);
+        }
+        return ranges;
+      })() : [];
 
       // Filtros YOLO
       const yClasses = splitList(q.get('y.class'));
@@ -268,7 +280,7 @@ export class SearchLinksService {
       console.log('[SearchLinksService] CAN filters:', { cVRange, cSwaRanges, cBrakes });
       console.log('[SearchLinksService] laneego filters:', { lLeft, lRight });
       console.log('[SearchLinksService] Overpass filters:', { oHighway, oLanduse, oSurfaceTokens, oLanes, oMaxspeed, oOneway, oSidewalk, oCycleway });
-      console.log('[SearchLinksService] SemSeg filters:', { sBuildingRange, sVegetationRange });
+      console.log('[SearchLinksService] SemSeg filters:', { sBuildingRange, sVegetationRanges });
       console.log('[SearchLinksService] YOLO filters:', { yClasses, yRel, yConfRange, yDistRange });
       console.log('[SearchLinksService] allowedExts:', allowedExts);
 
@@ -309,7 +321,7 @@ export class SearchLinksService {
       const overpassActive = oHighway.length > 0 || oLanduse.length > 0 || oSurfaceTokens.length > 0 ||
         oLanes.length > 0 || oMaxspeed.length > 0 || oOneway.length > 0 ||
         oSidewalk.length > 0 || oCycleway.length > 0;
-      const semsegActive = !!sBuildingRange || !!sVegetationRange;
+      const semsegActive = !!sBuildingRange || (sVegetationRanges && sVegetationRanges.length > 0);
 
       const anyFilters1Hz = laneFiltersActive || canActive || yoloActive || overpassActive || semsegActive;
 
@@ -700,7 +712,7 @@ export class SearchLinksService {
       }
 
       // semseg_1hz
-      if (sBuildingRange || sVegetationRange) {
+      if (sBuildingRange || (sVegetationRanges && sVegetationRanges.length > 0)) {
         console.log('[SearchLinksService] Aplicando filtros semseg_1hz...');
         const rows = await prisma.semseg_1hz.findMany({
           where: {
@@ -726,9 +738,14 @@ export class SearchLinksService {
             bOK = inRange(r.building as any, lo, hi);
           }
           let vOK = true;
-          if (sVegetationRange) {
-            const [lo, hi] = sVegetationRange;
-            vOK = inRange(r.vegetation as any, lo, hi);
+          if (sVegetationRanges && sVegetationRanges.length > 0) {
+            vOK = false;
+            for (const [lo, hi] of sVegetationRanges) {
+              if (inRange(r.vegetation as any, lo, hi)) {
+                vOK = true;
+                break;
+              }
+            }
           }
           if (bOK && vOK) {
             if (!ok.has(acq)) ok.set(acq, new Set());
