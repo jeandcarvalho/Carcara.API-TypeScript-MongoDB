@@ -17,125 +17,167 @@ model Visiter {
 }
 
 model FilesProcessed {
-  id         String    @id @map("_id")
-  FileName String
-  Timestamp String
-  GPS_x String
-  GPS_y String
-  City String
-  Country String
-  District String
-  State String
-  Street String
-  IMU String 
-  OBII String
-  Radar String
-  Csv String
-  Mf4 String
-  VIEW360 String @map("360VIEW")
+  id         String @id @map("_id")
+  FileName   String
+  Timestamp  String
+  GPS_x      String
+  GPS_y      String
+  City       String
+  Country    String
+  District   String
+  State      String
+  Street     String
+  IMU        String 
+  OBII       String
+  Radar      String
+  Csv        String
+  Mf4        String
+  VIEW360    String @map("360VIEW")
   CAM_Front_Center String
-  CAM_Front_Left String
-  CAM_Front_Right String
-  CAM_Rear_Center String
-  CAM_Rear_Left String
-  CAM_Rear_Right String
-  Area String  
-  Misc String
-  Period String
-  RoadType String @map("Road Type")
-  Traffic String
-  Weather String
+  CAM_Front_Left   String
+  CAM_Front_Right  String
+  CAM_Rear_Center  String
+  CAM_Rear_Left    String
+  CAM_Rear_Right   String
+  Area       String  
+  Misc       String
+  Period     String
+  RoadType   String @map("Road Type")
+  Traffic    String
+  Weather    String
   @@map("FilesProcessed")
 }
 
-
 model blocks_5min {
-  id         String @id @map("_id") 
-  acq_id     String
-  vehicle    String?
-  period     String?
-  condition  String?
+  id        String @id @map("_id") 
+  acq_id    String
+  vehicle   String?
+  period    String?
+  condition String?
+
+  // índice simples por acq_id (já existia)
   @@index([acq_id])
+  // índice pros filtros de Vehicle & Scene → ajuda a puxar acq_id filtrando por vehicle/period/condition
+  @@index([vehicle, period, condition, acq_id])
+
   @@map("blocks_5min")
 }
 
 model can_1hz {
-  id          String @id @map("_id") @db.ObjectId
-  acq_id      String
-  sec         Int
-  GPS_x       String?
-  GPS_y       String?
-  GPS_z       String?
-  VehicleSpeed String?
+  id                 String @id @map("_id") @db.ObjectId
+  acq_id             String
+  sec                Int
+  GPS_x              String?
+  GPS_y              String?
+  GPS_z              String?
+  VehicleSpeed       String?
   SteeringWheelAngle String?
-  BrakeInfoStatus String?
+  BrakeInfoStatus    String?
+
+  // índice temporal global
   @@index([acq_id, sec])
+  // índices específicos pros filtros 1 Hz (velocidade / direção / freio)
+  @@index([acq_id, VehicleSpeed])
+  @@index([acq_id, SteeringWheelAngle])
+  @@index([acq_id, BrakeInfoStatus])
+
   @@map("can_1hz")
 }
 
 model laneego_1hz {
-  id      String @id @map("_id") @db.ObjectId
-  acq_id  String
-  sec     Int
-  left_disp   String?
-  right_disp  String?
+  id        String @id @map("_id") @db.ObjectId
+  acq_id    String
+  sec       Int
+  left_disp String?
+  right_disp String?
+
+  // índice temporal global
   @@index([acq_id, sec])
+  // índice pros filtros de disponibilidade de faixa
+  @@index([acq_id, left_disp, right_disp, sec])
+
   @@map("laneego_1hz")
 }
 
 model overpass_1hz {
-  id      String @id @map("_id") @db.ObjectId
-  acq_id  String
-  sec     Int
-  highway String?
+  id       String @id @map("_id") @db.ObjectId
+  acq_id   String
+  sec      Int
+  highway  String?
   maxspeed String?
-  lanes   String?
-  oneway  String?
-  surface String?
+  lanes    String?
+  oneway   String?
+  surface  String?
   sidewalk String?
   cycleway String?
-  landuse String?
-  suburb  String?
-  city    String?
-  state   String?
-  country String?
+  landuse  String?
+  suburb   String?
+  city     String?
+  state    String?
+  country  String?
+
+  // índice temporal global
   @@index([acq_id, sec])
+  // índices pros filtros de contexto de via
+  @@index([acq_id, highway, landuse])
+  @@index([acq_id, lanes])
+  @@index([acq_id, maxspeed])
+  @@index([acq_id, sidewalk])
+  @@index([acq_id, cycleway])
+
   @@map("overpass_1hz")
 }
 
 model semseg_1hz {
-  id        String @id @map("_id") @db.ObjectId
-  acq_id    String
-  sec       Int
+  id             String @id @map("_id") @db.ObjectId
+  acq_id         String
+  sec            Int
   building       String?
   vegetation     String?
   sidewalk_left  String?
   sidewalk_right String?
+
+  // índice temporal global
   @@index([acq_id, sec])
+  // índices pros filtros de building/vegetation
+  @@index([acq_id, building])
+  @@index([acq_id, vegetation])
+
   @@map("semseg_1hz")
 }
 
 model yolo_1hz {
-  id        String @id @map("_id") @db.ObjectId
-  acq_id    String
-  sec       Int
-  track_id  String?
-  class     String?
-  conf      String?
-  dist_m    String?
+  id         String @id @map("_id") @db.ObjectId
+  acq_id     String
+  sec        Int
+  track_id   String?
+  class      String?
+  conf       String?
+  dist_m     String?
   rel_to_ego String?
+
+  // índice temporal global
   @@index([acq_id, sec])
-  @@index([acq_id, class])
+  // filtros categóricos (class + posição relativa), com sec no fim
+  @@index([acq_id, class, rel_to_ego, sec])
+  // ranges de distância e confiança
+  @@index([acq_id, dist_m])
+  @@index([acq_id, conf])
+
   @@map("yolo_1hz")
 }
 
 model links {
   id     String @id @map("_id") @db.ObjectId
   acq_id String
-  sec    Int?     // fotos têm sec; vídeos/csv/mf4 ficam null
+  sec    Int?   // fotos têm sec; vídeos/csv/mf4 ficam null
   ext    String
   link   String
+
+  // índice temporal global
   @@index([acq_id, sec])
-  @@index([acq_id, ext])
+  // índice principal pra search: match acq_id + ext + sort/anchor por sec
+  @@index([acq_id, ext, sec])
+
   @@map("links")
 }

@@ -48,7 +48,10 @@ const GROUPS = {
     primary_link: ["motorway_link", "trunk_link", "primary_link"],
     secondary: ["secondary", "tertiary"],
     secondary_link: ["secondary_link", "tertiary_link"],
-    local: ["residential", "living_street", "service"],
+    local: ["residential", "living_street", "service", "services",
+      "pedestrian",
+      "footway",
+      "steps",],
     unpaved: ["track", "path"],
     slow: ["residential", "living_street", "service", "unclassified", "tertiary", "secondary"],
     all: ["motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "living_street", "service", "track", "path"]
@@ -533,10 +536,15 @@ const yDistRange = parseRange(yDistTok);
       // can_1hz
       if (!!cVRange || cSwaRanges.length > 0 || cBrakes.length > 0) {
         console.log('[SearchLinksService] Aplicando filtros can_1hz...');
+        const whereCan: any = {
+          acq_id: { in: acqUniverse },
+        };
+        // Empurra BrakeInfoStatus (filtro categórico) para o banco.
+        if (cBrakes.length > 0) {
+          whereCan.BrakeInfoStatus = { in: cBrakes };
+        }
         const rows = await prisma.can_1hz.findMany({
-          where: {
-            acq_id: { in: acqUniverse },
-          },
+          where: whereCan,
           select: {
             acq_id: true,
             sec: true,
