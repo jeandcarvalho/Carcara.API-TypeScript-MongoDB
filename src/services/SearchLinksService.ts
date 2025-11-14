@@ -48,7 +48,7 @@ const GROUPS = {
     primary_link: ["motorway_link", "trunk_link", "primary_link"],
     secondary: ["secondary", "tertiary"],
     secondary_link: ["secondary_link", "tertiary_link"],
-    local: ["residential", "living_street", "unclassified", "service"],
+    local: ["residential", "living_street", "service"],
     unpaved: ["track", "path"],
     slow: ["residential", "living_street", "service", "unclassified", "tertiary", "secondary"],
     all: ["motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "living_street", "service", "track", "path"]
