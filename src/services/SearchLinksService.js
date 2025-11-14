@@ -75,8 +75,7 @@ const SURFACE_PAVED = new Set([
     "asphalt", "paved", "concrete", "concrete_plates", "paving_stones", "sett", "cement"
 ]);
 const SURFACE_UNPAVED = new Set([
-    "unpaved", "compacted", "gravel", "fine_gravel", "gravel_turf",
-    "dirt", "earth", "ground", "pebblestone", "grass", "sand", "mud", "soil", "clay"
+    "unpaved"
 ]);
 // SemSeg thresholds (mesmos valores da UI)
 const SEMSEG = {
