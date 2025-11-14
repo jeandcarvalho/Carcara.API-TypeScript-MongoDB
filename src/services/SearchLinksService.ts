@@ -216,10 +216,18 @@ export class SearchLinksService {
       const oHighwayTokens = splitList(q.get('o.highway'));
       const oLanduseTokens = splitList(q.get('o.landuse'));
       const oSurfaceTokens = splitList(q.get('o.surface'));
+
+      // o.lanes: front manda 1,2,3 e banco tem 1.0,2.0,3.0
       const oLanesRaw = splitList(q.get('o.lanes'));
       const oLanes = oLanesRaw.map(x => (x.includes('.') ? x : `${x}.0`));
-      const oMaxspeedRaw = splitList(q.get('o.maxspeed'));
-      const oMaxspeed = oMaxspeedRaw.map(x => (x.includes('.') ? x : `${x}.0`));
+
+      // o.maxspeed: front manda 30,40,60 e banco tem 30.0,40.0,60.0
+      const oMaxspeedTokens = splitList(q.get('o.maxspeed'));
+      const oMaxspeed = oMaxspeedTokens
+        .map(x => Number(x))
+        .filter(x => Number.isFinite(x))
+        .map(x => x.toFixed(1));
+
       const oOneway = splitList(q.get('o.oneway'));
       const oSidewalk = splitList(q.get('o.sidewalk'));
       const oCycleway = splitList(q.get('o.cycleway'));
@@ -231,11 +239,12 @@ export class SearchLinksService {
       const sBuildingTok = q.get('s.building');
       const sVegetationTok = q.get('s.vegetation');
 
+      // s.building: aceita low/mid/high (legacy) ou range numérico (ex: 0..28.72)
       const sBuildingRange: Range | undefined = sBuildingTok ? (() => {
-        // Primeiro tenta interpretar como range explícito (ex.: "10..30", "..50", "20..")
-        const parsed = parseRange(sBuildingTok);
-        if (parsed) return parsed;
-        // Mantém compatibilidade com low/mid/high
+        // Tenta interpretar como range numérico primeiro
+        const asRange = parseRange(sBuildingTok);
+        if (asRange) return asRange;
+
         const base = SEMSEG.building;
         if (sBuildingTok === 'low') return [0, base.median];
         if (sBuildingTok === 'mid') return [base.median, base.p75];
@@ -243,33 +252,31 @@ export class SearchLinksService {
         return undefined;
       })() : undefined;
 
-      // Vegetation pode vir como múltiplos ranges separados por vírgula (ex.: "..7.99,7.99..50.41")
-      const sVegetationRanges: Range[] = sVegetationTok ? (() => {
-        const parts = sVegetationTok.split(',');
-        const ranges: Range[] = [];
-        for (const part of parts) {
-          const tok = part.trim();
-          if (!tok) continue;
-          // Tenta como range explícito (ex.: "10..30", "..50", "20..")
-          const parsed = parseRange(tok);
-          if (parsed) {
-            ranges.push(parsed);
+      // s.vegetation: agora trabalha com múltiplos ranges (ex: 7.99..50.41,50.41..)
+      const sVegetationRanges: Range[] = [];
+      if (sVegetationTok) {
+        const parts = sVegetationTok.split(',').map(s => s.trim()).filter(Boolean);
+        for (const p of parts) {
+          // Se for low/mid/high, mantém compat com o comportamento antigo
+          if (p === 'low' || p === 'mid' || p === 'high') {
+            const base = SEMSEG.vegetation;
+            if (p === 'low') sVegetationRanges.push([0, base.median]);
+            else if (p === 'mid') sVegetationRanges.push([base.median, base.p75]);
+            else if (p === 'high') sVegetationRanges.push([base.p75, undefined]);
             continue;
           }
-          // Compatibilidade com low/mid/high (útil se vier só um token simbólico)
-          const base = SEMSEG.vegetation;
-          if (tok === 'low') ranges.push([0, base.median]);
-          else if (tok === 'mid') ranges.push([base.median, base.p75]);
-          else if (tok === 'high') ranges.push([base.p75, undefined]);
+          const r = parseRange(p);
+          if (r) sVegetationRanges.push(r);
         }
-        return ranges;
-      })() : [];
+      }
 
       // Filtros YOLO
       const yClasses = splitList(q.get('y.class'));
       const yRel = splitList(q.get('y.rel'));
-      const yConfRange = parseRange(q.get('y.conf'));
-      const yDistRange = parseRange(q.get('y.dist_m'));
+      const yConfTok = q.get('y.conf');
+      const yDistTok = q.get('y.dist_m');
+      const yConfRange = parseRange(yConfTok);
+      const yDistRange = parseRange(yDistTok);
 
       // Extensões aceitas
       const extTokens = splitList(q.get('ext'));
@@ -316,11 +323,11 @@ export class SearchLinksService {
       // 2) Detectar se há filtros 1 Hz
       const laneFiltersActive = lLeft.length || lRight.length;
       const canActive = !!cVRange || cSwaRanges.length > 0 || cBrakes.length > 0;
-      const yoloActive = yClasses.length > 0 || yRel.length > 0 || !!yConfRange || !!yDistRange;
+      const yoloActive = yClasses.length > 0 || yRel.length > 0;
       const overpassActive = oHighway.length > 0 || oLanduse.length > 0 || oSurfaceTokens.length > 0 ||
         oLanes.length > 0 || oMaxspeed.length > 0 || oOneway.length > 0 ||
         oSidewalk.length > 0 || oCycleway.length > 0;
-      const semsegActive = !!sBuildingRange || (sVegetationRanges && sVegetationRanges.length > 0);
+      const semsegActive = !!sBuildingRange || !!sVegetationRanges;
 
       const anyFilters1Hz = laneFiltersActive || canActive || yoloActive || overpassActive || semsegActive;
 
@@ -594,52 +601,67 @@ export class SearchLinksService {
       }
 
       // yolo_1hz
-      if (yClasses.length > 0 || yRel.length > 0 || yConfRange || yDistRange) {
-        console.log('[SearchLinksService] Aplicando filtros yolo_1hz...');
+      {
+        const yoloActive = (
+          yClasses.length > 0 ||
+          yRel.length > 0 ||
+          !!yConfRange ||
+          !!yDistRange
+        );
 
-        const whereYolo: any = {
-          acq_id: { in: acqUniverse },
-        };
+        if (yoloActive) {
+          console.log('[SearchLinksService] Aplicando filtros yolo_1hz...');
 
-        if (yClasses.length) {
-          whereYolo.class = { in: yClasses };
-        }
-        if (yRel.length) {
-          whereYolo.rel_to_ego = { in: yRel };
-        }
-        if (yConfRange) {
-          const [lo, hi] = yConfRange;
-          const f: any = {};
-          if (lo != null) f.gte = lo;
-          if (hi != null) f.lte = hi;
-          whereYolo.conf = f;
-        }
-        if (yDistRange) {
-          const [lo, hi] = yDistRange;
-          const f: any = {};
-          if (lo != null) f.gte = lo;
-          if (hi != null) f.lte = hi;
-          whereYolo.dist_m = f;
-        }
+          // Monta where dinamicamente para evitar campos undefined
+          const whereYolo: any = {
+            acq_id: { in: acqUniverse },
+          };
 
-        const rows = await prisma.yolo_1hz.findMany({
-          where: whereYolo,
-          select: { acq_id: true, sec: true },
-        });
-        t = stamp('yolo_1hz.findMany', t, `rows=${rows.length}`);
+          if (yClasses.length) {
+            whereYolo.class = { in: yClasses };
+          }
+          if (yRel.length) {
+            whereYolo.rel_to_ego = { in: yRel };
+          }
+          if (yConfRange) {
+            const [lo, hi] = yConfRange;
+            const confCond: any = {};
+            if (lo !== undefined) confCond.gte = lo;
+            if (hi !== undefined) confCond.lte = hi;
+            if (Object.keys(confCond).length > 0) {
+              whereYolo.conf = confCond;
+            }
+          }
+          if (yDistRange) {
+            const [lo, hi] = yDistRange;
+            const distCond: any = {};
+            if (lo !== undefined) distCond.gte = lo;
+            if (hi !== undefined) distCond.lte = hi;
+            if (Object.keys(distCond).length > 0) {
+              whereYolo.dist_m = distCond;
+            }
+          }
 
-        const ok = new Map<string, Set<number>>();
-        for (const r of rows) {
-          if (r.sec == null) continue;
-          const acq = String(r.acq_id);
-          if (!ok.has(acq)) ok.set(acq, new Set());
-          ok.get(acq)!.add(r.sec);
+          const rows = await prisma.yolo_1hz.findMany({
+            where: whereYolo,
+            select: { acq_id: true, sec: true },
+          });
+          t = stamp('yolo_1hz.findMany', t, `rows=${rows.length}`);
+
+          const ok = new Map<string, Set<number>>();
+          for (const r of rows) {
+            if (r.sec == null) continue;
+            const acq = String(r.acq_id);
+            if (!ok.has(acq)) ok.set(acq, new Set());
+            ok.get(acq)!.add(r.sec);
+          }
+          secondsMap = intersectSeconds(secondsMap, ok);
+          console.log(`[SearchLinksService] after yolo intersect: acq_ids=${secondsMap.size}`);
         }
-        secondsMap = intersectSeconds(secondsMap, ok);
-        console.log(`[SearchLinksService] after yolo intersect: acq_ids=${secondsMap.size}`);
       }
 
       // overpass_1hz
+// overpass_1hz
       if (overpassActive) {
         console.log('[SearchLinksService] Aplicando filtros overpass_1hz...');
 
@@ -711,7 +733,7 @@ export class SearchLinksService {
       }
 
       // semseg_1hz
-      if (sBuildingRange || (sVegetationRanges && sVegetationRanges.length > 0)) {
+      if (sBuildingRange || sVegetationRanges.length > 0) {
         console.log('[SearchLinksService] Aplicando filtros semseg_1hz...');
         const rows = await prisma.semseg_1hz.findMany({
           where: {
@@ -736,16 +758,19 @@ export class SearchLinksService {
             const [lo, hi] = sBuildingRange;
             bOK = inRange(r.building as any, lo, hi);
           }
+
           let vOK = true;
-          if (sVegetationRanges && sVegetationRanges.length > 0) {
-            vOK = false;
+          if (sVegetationRanges.length > 0) {
+            let anyMatch = false;
             for (const [lo, hi] of sVegetationRanges) {
               if (inRange(r.vegetation as any, lo, hi)) {
-                vOK = true;
+                anyMatch = true;
                 break;
               }
             }
+            vOK = anyMatch;
           }
+
           if (bOK && vOK) {
             if (!ok.has(acq)) ok.set(acq, new Set());
             ok.get(acq)!.add(r.sec);
