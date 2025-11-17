@@ -13,7 +13,7 @@ exports.routes = void 0;
 const ListFilesController_1 = require("./controllers/ListFilesController");
 const HomeController_1 = require("./controllers/HomeController");
 const ListCounterController_1 = require("./controllers/ListCounterController");
-const SearchLinksController_1 = require("./controllers/SearchLinksController");
+const SearchBigController_1 = require("./controllers/SearchBigController"); // ⬅️ novo
 function routes(fastify, options) {
     return __awaiter(this, void 0, void 0, function* () {
         // rota de listagem de arquivos
@@ -28,9 +28,9 @@ function routes(fastify, options) {
         fastify.get("/counter", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListCounterController_1.ListCounterController().handle(request, reply);
         }));
-        // 🔍 nova rota de busca complexa CarCará
+        // 🔍 nova rota de busca CarCará usando big_1hz
         fastify.get("/api/search", (request, reply) => __awaiter(this, void 0, void 0, function* () {
-            return new SearchLinksController_1.SearchLinksController().handle(request, reply);
+            return new SearchBigController_1.SearchBigController().handle(request, reply);
         }));
     });
 }

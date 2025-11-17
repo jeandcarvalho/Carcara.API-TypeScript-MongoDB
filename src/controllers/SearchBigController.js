@@ -9,19 +9,15 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SearchLinksController = void 0;
-const SearchLinksService_1 = require("../services/SearchLinksService");
-class SearchLinksController {
+exports.SearchBigController = void 0;
+const SearchBigService_1 = require("../services/SearchBigService");
+class SearchBigController {
     handle(request, reply) {
-        var _a;
         return __awaiter(this, void 0, void 0, function* () {
-            // request.raw.url traz "/api/search?..." mesmo atrás de proxies
-            const rawUrl = ((_a = request.raw) === null || _a === void 0 ? void 0 : _a.url) || request.url;
-            // cria instância da service e usa o método de instância executeFromURL
-            const service = new SearchLinksService_1.SearchLinksService();
-            const result = yield service.executeFromURL(rawUrl);
-            reply.send(result);
+            const service = new SearchBigService_1.SearchBigService();
+            const result = yield service.execute(request.query);
+            return reply.send(result);
         });
     }
 }
-exports.SearchLinksController = SearchLinksController;
+exports.SearchBigController = SearchBigController;

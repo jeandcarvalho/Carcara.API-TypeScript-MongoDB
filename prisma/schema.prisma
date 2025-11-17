@@ -1,5 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// CarCará · Prisma schema for big_1hz (MongoDB)
+
 
 generator client {
   provider = "prisma-client-js"
@@ -48,136 +48,104 @@ model FilesProcessed {
   @@map("FilesProcessed")
 }
 
-model blocks_5min {
-  id        String @id @map("_id") 
-  acq_id    String
-  vehicle   String?
+model Big1Hz {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+
+  acq_id     Int?
+  acq_name   String?
+  acq_id_raw String?
+
+  sec        Int
+
+  block      BlockSub?
+  can        CanSub?
+  laneego    LaneegoSub?
+  overpass   OverpassSub?
+  semseg     SemsegSub?
+  yolo       YoloDet[]
+  links      LinkFile[]
+
+  @@map("big_1hz")
+  @@index([acq_id, sec])
+  @@index([block.vehicle])
+  @@index([block.meteo.period])
+  @@index([block.meteo.condition])
+  @@index([overpass.highway])
+  @@index([overpass.landuse])
+}
+
+type BlockSub {
+  vehicle String?
+  meteo   MeteoSub?
+}
+
+type MeteoSub {
   period    String?
   condition String?
-
-  // índice simples por acq_id (já existia)
-  @@index([acq_id])
-  // índice pros filtros de Vehicle & Scene → ajuda a puxar acq_id filtrando por vehicle/period/condition
-  @@index([vehicle, period, condition, acq_id])
-
-  @@map("blocks_5min")
 }
 
-model can_1hz {
-  id                 String @id @map("_id") @db.ObjectId
-  acq_id             String
-  sec                Int
-  GPS_x              String?
-  GPS_y              String?
-  GPS_z              String?
-  VehicleSpeed       String?
-  SteeringWheelAngle String?
+type CanSub {
+  GPS_x              Float?
+  GPS_y              Float?
+  GPS_z              Float?
+  VehicleSpeed       Float?
+  SteeringWheelAngle Float?
   BrakeInfoStatus    String?
-
-  // índice temporal global
-  @@index([acq_id, sec])
-  // índices específicos pros filtros 1 Hz (velocidade / direção / freio)
-  @@index([acq_id, VehicleSpeed])
-  @@index([acq_id, SteeringWheelAngle])
-  @@index([acq_id, BrakeInfoStatus])
-
-  @@map("can_1hz")
 }
 
-model laneego_1hz {
-  id        String @id @map("_id") @db.ObjectId
-  acq_id    String
-  sec       Int
-  left_disp String?
+type LaneegoSub {
+  left_disp  String?
   right_disp String?
-
-  // índice temporal global
-  @@index([acq_id, sec])
-  // índice pros filtros de disponibilidade de faixa
-  @@index([acq_id, left_disp, right_disp, sec])
-
-  @@map("laneego_1hz")
 }
 
-model overpass_1hz {
-  id       String @id @map("_id") @db.ObjectId
-  acq_id   String
-  sec      Int
+type OverpassSub {
+  city     String?
+  state    String?
+  country  String?
+  suburb   String?
+
+  road     String?
   highway  String?
-  maxspeed String?
-  lanes    String?
+  landuse  String?
+
+  lanes    Float?
+  maxspeed Float?
+
   oneway   String?
   surface  String?
   sidewalk String?
   cycleway String?
-  landuse  String?
-  suburb   String?
-  city     String?
-  state    String?
-  country  String?
-
-  // índice temporal global
-  @@index([acq_id, sec])
-  // índices pros filtros de contexto de via
-  @@index([acq_id, highway, landuse])
-  @@index([acq_id, lanes])
-  @@index([acq_id, maxspeed])
-  @@index([acq_id, sidewalk])
-  @@index([acq_id, cycleway])
-
-  @@map("overpass_1hz")
 }
 
-model semseg_1hz {
-  id             String @id @map("_id") @db.ObjectId
-  acq_id         String
-  sec            Int
-  building       String?
-  vegetation     String?
-  sidewalk_left  String?
-  sidewalk_right String?
-
-  // índice temporal global
-  @@index([acq_id, sec])
-  // índices pros filtros de building/vegetation
-  @@index([acq_id, building])
-  @@index([acq_id, vegetation])
-
-  @@map("semseg_1hz")
+type SemsegSub {
+  building      Float?
+  vegetation    Float?
+  sidewalk_left Float?
+  sidewalk_right Float?
 }
 
-model yolo_1hz {
-  id         String @id @map("_id") @db.ObjectId
-  acq_id     String
-  sec        Int
-  track_id   String?
-  class      String?
-  conf       String?
-  dist_m     String?
+type YoloDet {
+  frame_idx Int?
+  fps       Float?
+
+  track_id  Int?
+  class     String?
+  conf      Float?
+
+  x1        Float?
+  y1        Float?
+  x2        Float?
+  y2        Float?
+  w         Float?
+  h         Float?
+
+  dist_m    Float?
+  geom_idx  Float?
   rel_to_ego String?
-
-  // índice temporal global
-  @@index([acq_id, sec])
-  // filtros categóricos (class + posição relativa), com sec no fim
-  @@index([acq_id, class, rel_to_ego, sec])
-  // ranges de distância e confiança
-  @@index([acq_id, dist_m])
-  @@index([acq_id, conf])
-
-  @@map("yolo_1hz")
+  in_frac   Float?
 }
 
-model links {
-  id     String @id @map("_id") @db.ObjectId
-  acq_id String
-  sec    Int?   // fotos têm sec; vídeos/csv/mf4 ficam null
-  ext    String
-  link   String
-
-  // índice temporal global
-  @@index([acq_id, sec])
-  // índice principal pra search: match acq_id + ext + sort/anchor por sec
-  @@index([acq_id, ext, sec])
-
-  @@map("links")
+type LinkFile {
+  ext  String?
+  link String?
 }
