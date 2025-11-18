@@ -1,6 +1,7 @@
 // src/services/SearchBigService.ts
 // Busca em big_1hz com filtros do front (Search.tsx)
-// Devolve até 5 segundos por acq_id, distribuídos na timeline.
+// Agora: traz TODOS os segundos com links que baterem, sem limite por acq_id,
+// e loga a quantidade total encontrada.
 
 import { Prisma } from "@prisma/client";
 import prismaClient from "../prisma";
@@ -313,48 +314,6 @@ function buildMongoMatch(q: SearchQuery): Record<string, any> {
   return { $and: and };
 }
 
-// escolhe até maxSecs segundos por acq_id, distribuídos na timeline
-function pickTopSecondsPerAcq(hits: SearchHit[], maxSecs = 5): SearchHit[] {
-  const byAcq = new Map<number, SearchHit[]>();
-
-  for (const h of hits) {
-    if (h.acq_id == null) continue;
-    if (!h.links || !h.links.length) continue;
-    const arr = byAcq.get(h.acq_id) ?? [];
-    arr.push(h);
-    byAcq.set(h.acq_id, arr);
-  }
-
-  const sortedAcqIds = Array.from(byAcq.keys()).sort((a, b) => a - b);
-  const final: SearchHit[] = [];
-
-  for (const acqId of sortedAcqIds) {
-    const arr = byAcq.get(acqId)!;
-    arr.sort((a, b) => a.sec - b.sec);
-
-    if (arr.length <= maxSecs) {
-      final.push(...arr);
-      continue;
-    }
-
-    const n = arr.length;
-    const k = maxSecs;
-    const chosen: SearchHit[] = [];
-    for (let i = 0; i < k; i++) {
-      const idx = Math.floor(((i + 0.5) * n) / k);
-      const clampedIdx = Math.min(Math.max(idx, 0), n - 1);
-      const cand = arr[clampedIdx];
-      if (!chosen.find((h) => h.sec === cand.sec)) {
-        chosen.push(cand);
-      }
-    }
-    chosen.sort((a, b) => a.sec - b.sec);
-    final.push(...chosen);
-  }
-
-  return final;
-}
-
 /* ================= Service ================= */
 
 class SearchBigService {
@@ -392,14 +351,24 @@ class SearchBigService {
       links: Array.isArray(doc.links) ? (doc.links as LinkObj[]) : [],
     }));
 
-    const allHits = pickTopSecondsPerAcq(rows, 5);
+    // 🔎 Mantém apenas segundos que têm pelo menos 1 link
+    const rowsWithLinks = rows.filter((h) => h.links && h.links.length > 0);
 
-    // paginação por acq_id
-    const acqOrder = Array.from(
-      new Set(allHits.map((h) => h.acq_id).filter((x): x is number => x != null)),
-    ).sort((a, b) => a - b);
+    // 🔔 LOG SIMPLES PRA DEBUG
+    const uniqueAcqIds = Array.from(
+      new Set(rowsWithLinks.map((h) => h.acq_id).filter((x): x is number => x != null)),
+    );
+    console.log("[SearchBigService] total docs agregados:", rawArr.length);
+    console.log("[SearchBigService] docs com links:", rowsWithLinks.length);
+    console.log("[SearchBigService] acq_ids únicos:", uniqueAcqIds.length);
 
+    // Agora, SEM corte: TODOS os segundos com link que bateram
+    const allHits = rowsWithLinks;
+
+    // paginação por acq_id (a View agrupa por acq_id)
+    const acqOrder = uniqueAcqIds.sort((a, b) => a - b);
     const totalAcq = acqOrder.length;
+
     const startIndex = (page - 1) * perPage;
     const pageAcqIds = acqOrder.slice(startIndex, startIndex + perPage);
     const pageSet = new Set(pageAcqIds);
