@@ -351,6 +351,21 @@ class SearchBigService {
     const perPage = Math.max(1, Number(query.per_page ?? "100") || 100);
 
     const match = buildMongoMatch(query);
+    const isEmptyMatch =
+      !match || (Object.keys(match).length === 0 && match.constructor === Object);
+
+    // Proteção: evita varrer e ordenar a coleção inteira sem filtro
+    if (isEmptyMatch) {
+      console.warn("[SearchBigService] empty $match – aborting full scan");
+      return {
+        page,
+        per_page: perPage,
+        has_more: false,
+        matched_acq_ids: 0,
+        total_hits: 0,
+        items: [],
+      };
+    }
 
     const pipeline: Prisma.InputJsonValue[] = [
       { $match: match },
@@ -363,7 +378,8 @@ class SearchBigService {
           links: 1,
         },
       },
-      { $sort: { acq_id: 1, sec: 1 } },
+      // 🔁 Removido $sort do Mongo para evitar erro 292 (limite de memória do sort).
+      // A ordenação será feita em memória no Node após o aggregateRaw.
     ];
 
     console.log(
@@ -383,7 +399,7 @@ class SearchBigService {
 
     const rawArr = raw as unknown as any[];
 
-    const rows: SearchHit[] = rawArr.map((doc: any) => ({
+    let rows: SearchHit[] = rawArr.map((doc: any) => ({
       acq_id: typeof doc.acq_id === "number" ? doc.acq_id : null,
       acq_id_raw: doc.acq_id_raw ?? null,
       acq_name: doc.acq_name ?? null,
@@ -394,9 +410,19 @@ class SearchBigService {
     // 🔎 Mantém apenas segundos que têm pelo menos 1 link
     const rowsWithLinks = rows.filter((h) => h.links && h.links.length > 0);
 
+    // 🔁 Ordena em memória por acq_id, depois sec
+    rowsWithLinks.sort((a, b) => {
+      const aId = a.acq_id ?? 0;
+      const bId = b.acq_id ?? 0;
+      if (aId !== bId) return aId - bId;
+      return a.sec - b.sec;
+    });
+
     // 🔔 LOG SIMPLES PRA DEBUG
     const uniqueAcqIds = Array.from(
-      new Set(rowsWithLinks.map((h) => h.acq_id).filter((x): x is number => x != null)),
+      new Set(
+        rowsWithLinks.map((h) => h.acq_id).filter((x): x is number => x != null),
+      ),
     );
     console.log("[SearchBigService] total docs agregados:", rawArr.length);
     console.log("[SearchBigService] docs com links:", rowsWithLinks.length);
@@ -406,7 +432,7 @@ class SearchBigService {
     const allHits = rowsWithLinks;
 
     // paginação por acq_id (a View agrupa por acq_id)
-    const acqOrder = uniqueAcqIds.sort((a, b) => a - b);
+    const acqOrder = uniqueAcqIds; // já está em ordem crescente pelo sort acima
     const totalAcq = acqOrder.length;
 
     const startIndex = (page - 1) * perPage;

@@ -59,34 +59,17 @@ const LANDUSE_GROUPS = {
     industrial: ["industrial", "garages", "storage", "landfill"],
     agro: ["farmland", "farmyard", "orchard", "meadow"],
 };
-// Forma canônica dos veículos armazenados no big_1hz
-const VEHICLE_NORMALIZATION = {
-    "captur": "Captur",
-    "daf cf 410": "DAF CF 410",
-    "renegade": "Renegade",
-};
 function buildMongoMatch(q) {
     const and = [];
-    console.log("[SearchBigService] buildMongoMatch() - raw query:", JSON.stringify(q));
-    // ---- blocks: vehicle (normaliza para forma canônica) ----
-    const bVehiclesRaw = splitList(q["b.vehicle"]);
-    console.log("[SearchBigService] b.vehicle raw:", q["b.vehicle"]);
-    console.log("[SearchBigService] b.vehicle split:", bVehiclesRaw);
-    if (bVehiclesRaw.length) {
-        const bVehicles = bVehiclesRaw.map((v) => {
-            var _a;
-            const key = v.toLowerCase();
-            return (_a = VEHICLE_NORMALIZATION[key]) !== null && _a !== void 0 ? _a : v;
-        });
-        console.log("[SearchBigService] b.vehicle normalized:", bVehicles);
+    // ---- blocks ----
+    const bVehicles = splitList(q["b.vehicle"]);
+    if (bVehicles.length) {
         and.push({ "block.vehicle": { $in: bVehicles } });
     }
-    // ---- blocks: period ----
     const bPeriods = splitList(q["b.period"]);
     if (bPeriods.length) {
         and.push({ "block.meteo.period": { $in: bPeriods } });
     }
-    // ---- blocks: condition ----
     const bConditions = splitList(q["b.condition"]);
     if (bConditions.length) {
         and.push({ "block.meteo.condition": { $in: bConditions } });
@@ -131,13 +114,9 @@ function buildMongoMatch(q) {
         else if (ors.length > 1)
             and.push({ $or: ors });
     }
-    // ---- CAN: freio (limpa padrão b'...') ----
-    const rawBrakes = splitList(q["c.brakes"]);
-    if (rawBrakes.length) {
-        const brakes = rawBrakes.map((v) => {
-            const m = v.match(/^b'(.*)'$/);
-            return m ? m[1] : v;
-        });
+    // ---- CAN: freio ----
+    const brakes = splitList(q["c.brakes"]);
+    if (brakes.length) {
         and.push({ "can.BrakeInfoStatus": { $in: brakes } });
     }
     // ---- Overpass: highway groups ----
@@ -290,15 +269,11 @@ function buildMongoMatch(q) {
             });
         }
     }
-    let match;
     if (!and.length)
-        match = {};
-    else if (and.length === 1)
-        match = and[0];
-    else
-        match = { $and: and };
-    console.log("[SearchBigService] final $match:", JSON.stringify(match));
-    return match;
+        return {};
+    if (and.length === 1)
+        return and[0];
+    return { $and: and };
 }
 /* ================= Service ================= */
 class SearchBigService {
@@ -308,19 +283,6 @@ class SearchBigService {
             const page = Math.max(1, Number((_a = query.page) !== null && _a !== void 0 ? _a : "1") || 1);
             const perPage = Math.max(1, Number((_b = query.per_page) !== null && _b !== void 0 ? _b : "100") || 100);
             const match = buildMongoMatch(query);
-            const isEmptyMatch = !match || (Object.keys(match).length === 0 && match.constructor === Object);
-            // Proteção: evita varrer e ordenar a coleção inteira sem filtro
-            if (isEmptyMatch) {
-                console.warn("[SearchBigService] empty $match – aborting full scan");
-                return {
-                    page,
-                    per_page: perPage,
-                    has_more: false,
-                    matched_acq_ids: 0,
-                    total_hits: 0,
-                    items: [],
-                };
-            }
             const pipeline = [
                 { $match: match },
                 {
@@ -332,22 +294,13 @@ class SearchBigService {
                         links: 1,
                     },
                 },
-                // 🔁 Removido $sort do Mongo para evitar erro 292 (limite de memória do sort).
-                // A ordenação será feita em memória no Node após o aggregateRaw.
+                { $sort: { acq_id: 1, sec: 1 } },
             ];
-            console.log("[SearchBigService] aggregateRaw pipeline:", JSON.stringify(pipeline));
-            let raw;
-            try {
-                raw = yield prisma_1.default.big1Hz.aggregateRaw({
-                    pipeline,
-                });
-            }
-            catch (err) {
-                console.error("[SearchBigService] aggregateRaw ERROR:", err);
-                throw err;
-            }
+            const raw = yield prisma_1.default.big1Hz.aggregateRaw({
+                pipeline,
+            });
             const rawArr = raw;
-            let rows = rawArr.map((doc) => {
+            const rows = rawArr.map((doc) => {
                 var _a, _b, _c;
                 return ({
                     acq_id: typeof doc.acq_id === "number" ? doc.acq_id : null,
@@ -359,15 +312,6 @@ class SearchBigService {
             });
             // 🔎 Mantém apenas segundos que têm pelo menos 1 link
             const rowsWithLinks = rows.filter((h) => h.links && h.links.length > 0);
-            // 🔁 Ordena em memória por acq_id, depois sec
-            rowsWithLinks.sort((a, b) => {
-                var _a, _b;
-                const aId = (_a = a.acq_id) !== null && _a !== void 0 ? _a : 0;
-                const bId = (_b = b.acq_id) !== null && _b !== void 0 ? _b : 0;
-                if (aId !== bId)
-                    return aId - bId;
-                return a.sec - b.sec;
-            });
             // 🔔 LOG SIMPLES PRA DEBUG
             const uniqueAcqIds = Array.from(new Set(rowsWithLinks.map((h) => h.acq_id).filter((x) => x != null)));
             console.log("[SearchBigService] total docs agregados:", rawArr.length);
@@ -376,7 +320,7 @@ class SearchBigService {
             // Agora, SEM corte: TODOS os segundos com link que bateram
             const allHits = rowsWithLinks;
             // paginação por acq_id (a View agrupa por acq_id)
-            const acqOrder = uniqueAcqIds; // já está em ordem crescente pelo sort acima
+            const acqOrder = uniqueAcqIds.sort((a, b) => a - b);
             const totalAcq = acqOrder.length;
             const startIndex = (page - 1) * perPage;
             const pageAcqIds = acqOrder.slice(startIndex, startIndex + perPage);
