@@ -1,12 +1,13 @@
 "use strict";
 // src/services/SearchBigService.ts
 // Busca em big_1hz com filtros do front (Search.tsx)
-// Estratégia atual:
+//
+// Estratégia:
 //  - 1º pipeline Mongo: filtra TODOS os segundos que batem (sem links).
 //  - Ordena e pagina por acq_id no Node.
 //  - Para os acq_ids da página, escolhe até N segundos representativos.
 //  - 2º pipeline Mongo: busca links SOMENTE desses segundos (por acq_id/sec).
-//  - Anexa links apenas nesses poucos segundos; os demais vêm com links = [].
+//  - Anexa um único link nesses poucos segundos; os demais vêm sem 'link'.
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -69,7 +70,7 @@ const VEHICLE_NORMALIZATION = {
     "daf cf 410": "DAF CF 410",
     "renegade": "Renegade",
 };
-// Quantidade máxima de segundos que terão links por aquisição (na página atual)
+// Quantidade máxima de segundos que terão link por aquisição (na página atual)
 const MAX_SECS_WITH_LINKS_PER_ACQ = 5;
 /**
  * Dado um array de segundos ordenados, escolhe até `limit` segundos
@@ -327,7 +328,7 @@ function buildMongoMatch(q) {
 /* ================= Service ================= */
 class SearchBigService {
     execute(query) {
-        var _a, _b, _c;
+        var _a, _b, _c, _d;
         return __awaiter(this, void 0, void 0, function* () {
             const page = Math.max(1, Number((_a = query.page) !== null && _a !== void 0 ? _a : "1") || 1);
             const perPage = Math.max(1, Number((_b = query.per_page) !== null && _b !== void 0 ? _b : "100") || 100);
@@ -351,10 +352,7 @@ class SearchBigService {
                 {
                     $project: {
                         acq_id: 1,
-                        acq_id_raw: 1,
-                        acq_name: 1,
                         sec: 1,
-                        // links intencionalmente fora aqui
                     },
                 },
             ];
@@ -370,15 +368,12 @@ class SearchBigService {
                 throw err;
             }
             const rawArr = raw;
-            // Mapeia todos os hits SEM links por enquanto
+            // Mapeia todos os hits SEM link por enquanto
             const allRows = rawArr.map((doc) => {
-                var _a, _b, _c;
+                var _a;
                 return ({
                     acq_id: typeof doc.acq_id === "number" ? doc.acq_id : null,
-                    acq_id_raw: (_a = doc.acq_id_raw) !== null && _a !== void 0 ? _a : null,
-                    acq_name: (_b = doc.acq_name) !== null && _b !== void 0 ? _b : null,
-                    sec: (_c = doc.sec) !== null && _c !== void 0 ? _c : 0,
-                    links: [], // preencheremos somente em alguns segundos no passo 2
+                    sec: (_a = doc.sec) !== null && _a !== void 0 ? _a : 0,
                 });
             });
             // Ordena por acq_id, depois sec
@@ -399,7 +394,7 @@ class SearchBigService {
             const startIndex = (page - 1) * perPage;
             const pageAcqIds = acqOrder.slice(startIndex, startIndex + perPage);
             const pageSet = new Set(pageAcqIds);
-            // Hits da página atual (sem links ainda)
+            // Hits da página atual (sem link ainda)
             const pageHits = allRows.filter((h) => h.acq_id != null && pageSet.has(h.acq_id));
             const hasMore = startIndex + perPage < totalAcq;
             // Se não há hits na página, já retorna daqui
@@ -431,9 +426,9 @@ class SearchBigService {
                     pairsToFetchLinks.push({ acq_id: acqId, sec: s });
                 }
             }
-            console.log("[SearchBigService] segundos que terão links (por acq_id):", JSON.stringify(pairsToFetchLinks));
+            console.log("[SearchBigService] segundos que terão link (por acq_id):", JSON.stringify(pairsToFetchLinks));
             // 2º pipeline: busca links APENAS para (acq_id, sec) selecionados
-            let linksByKey = new Map();
+            const linksByKey = new Map();
             if (pairsToFetchLinks.length) {
                 const orConds = pairsToFetchLinks.map((p) => ({
                     acq_id: p.acq_id,
@@ -454,31 +449,39 @@ class SearchBigService {
                     const rawLinks = (yield prisma_1.default.big1Hz.aggregateRaw({
                         pipeline: pipelineLinks,
                     }));
-                    linksByKey = new Map(rawLinks.map((doc) => {
-                        var _a;
+                    for (const doc of rawLinks) {
                         const acqId = typeof doc.acq_id === "number" ? doc.acq_id : null;
-                        const sec = (_a = doc.sec) !== null && _a !== void 0 ? _a : 0;
-                        const key = `${acqId !== null && acqId !== void 0 ? acqId : 0}_${sec}`;
-                        const linksArr = Array.isArray(doc.links)
-                            ? doc.links
-                            : [];
-                        return [key, linksArr];
-                    }));
-                    console.log("[SearchBigService] docs com links retornados no passo 2:", rawLinks.length);
+                        const sec = (_d = doc.sec) !== null && _d !== void 0 ? _d : 0;
+                        if (acqId == null)
+                            continue;
+                        const key = `${acqId}_${sec}`;
+                        let linkStr;
+                        if (Array.isArray(doc.links) && doc.links.length > 0) {
+                            const first = doc.links[0];
+                            if (first && typeof first.link === "string") {
+                                linkStr = first.link;
+                            }
+                        }
+                        if (linkStr) {
+                            linksByKey.set(key, linkStr);
+                        }
+                    }
+                    console.log("[SearchBigService] docs com links retornados no passo 2:", linksByKey.size);
                 }
                 catch (err) {
                     console.error("[SearchBigService] aggregateRaw (passo 2) ERROR:", err);
                     // Em caso de erro, segue sem links (melhor do que quebrar a busca)
                 }
             }
-            // Anexa links somente nos segundos selecionados; demais ficam com []
+            // Anexa link somente nos segundos selecionados; demais ficam sem 'link'
             const enrichedPageHits = pageHits.map((h) => {
-                var _a;
                 if (h.acq_id == null)
                     return h;
                 const key = `${h.acq_id}_${h.sec}`;
-                const links = (_a = linksByKey.get(key)) !== null && _a !== void 0 ? _a : [];
-                return Object.assign(Object.assign({}, h), { links });
+                const link = linksByKey.get(key);
+                if (!link)
+                    return h;
+                return Object.assign(Object.assign({}, h), { link });
             });
             return {
                 page,
