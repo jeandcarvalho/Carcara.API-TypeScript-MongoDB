@@ -1,8 +1,7 @@
 // src/services/SearchBigService.ts
 // Busca em big_1hz com filtros do front (Search.tsx)
-// Agora: traz TODOS os segundos que baterem,
-// mas limita a quantidade de segundos COM links por acq_id
-// (ex.: 5 segundos bem espaçados), e o resto vem com links = [].
+// Agora: traz TODOS os segundos com links que baterem, sem limite por acq_id,
+// e loga a quantidade total encontrada.
 
 import { Prisma } from "@prisma/client";
 import prismaClient from "../prisma";
@@ -352,74 +351,19 @@ class SearchBigService {
       links: Array.isArray(doc.links) ? (doc.links as LinkObj[]) : [],
     }));
 
-    // 🔎 Mantém apenas segundos que têm pelo menos 1 link (antes do corte)
-    const rowsWithLinksBefore = rows.filter((h) => h.links && h.links.length > 0);
+    // 🔎 Mantém apenas segundos que têm pelo menos 1 link
+    const rowsWithLinks = rows.filter((h) => h.links && h.links.length > 0);
 
-    // 📉 Limita quantidade de segundos COM link por acq_id
-    const MAX_LINK_SECONDS_PER_ACQ = 5;
-
-    const byAcq = new Map<number, SearchHit[]>();
-
-    for (const hit of rowsWithLinksBefore) {
-      if (hit.acq_id == null) continue;
-      if (!byAcq.has(hit.acq_id)) {
-        byAcq.set(hit.acq_id, []);
-      }
-      byAcq.get(hit.acq_id)!.push(hit);
-    }
-
-    for (const [acqId, arr] of byAcq.entries()) {
-      if (!arr.length) continue;
-
-      // já vem ordenado por sec pelo pipeline, mas garantimos:
-      arr.sort((a, b) => a.sec - b.sec);
-
-      if (arr.length <= MAX_LINK_SECONDS_PER_ACQ) {
-        continue; // poucas linhas, mantém todos os links
-      }
-
-      const lastIndex = arr.length - 1;
-      const k = MAX_LINK_SECONDS_PER_ACQ;
-
-      const keepIdx = new Set<number>();
-
-      // distribui índices de forma aproximadamente uniforme ao longo do array
-      for (let i = 0; i < k; i++) {
-        const idx = Math.round((i * lastIndex) / (k - 1));
-        keepIdx.add(idx);
-      }
-
-      // garante que 0 e lastIndex estejam incluídos
-      keepIdx.add(0);
-      keepIdx.add(lastIndex);
-
-      arr.forEach((hit, idx) => {
-        if (!keepIdx.has(idx)) {
-          // zera os links nos segundos que não serão usados pra imagens
-          hit.links = [];
-        }
-      });
-    }
-
-    // Agora rowsWithLinksAfter é o mesmo array, mas com links vazios em boa parte
-    const rowsWithLinksAfter = rows.filter((h) => h.links && h.links.length > 0);
-
+    // 🔔 LOG SIMPLES PRA DEBUG
     const uniqueAcqIds = Array.from(
-      new Set(
-        rowsWithLinksBefore
-          .map((h) => h.acq_id)
-          .filter((x): x is number => x != null),
-      ),
+      new Set(rowsWithLinks.map((h) => h.acq_id).filter((x): x is number => x != null)),
     );
-
     console.log("[SearchBigService] total docs agregados:", rawArr.length);
-    console.log("[SearchBigService] docs que tinham links (antes do limite):", rowsWithLinksBefore.length);
-    console.log("[SearchBigService] docs com links (após limite):", rowsWithLinksAfter.length);
+    console.log("[SearchBigService] docs com links:", rowsWithLinks.length);
     console.log("[SearchBigService] acq_ids únicos:", uniqueAcqIds.length);
 
-    // allHits = todos os docs (segundos) que tinham links antes,
-    // mas agora só alguns segundos por acq_id continuam com links preenchidos.
-    const allHits = rowsWithLinksBefore;
+    // Agora, SEM corte: TODOS os segundos com link que bateram
+    const allHits = rowsWithLinks;
 
     // paginação por acq_id (a View agrupa por acq_id)
     const acqOrder = uniqueAcqIds.sort((a, b) => a - b);
