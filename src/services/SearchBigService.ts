@@ -1,8 +1,12 @@
 
 // src/services/SearchBigService.ts
 // Busca em big_1hz com filtros do front (Search.tsx)
-// Agora: traz TODOS os segundos com links que baterem, sem limite por acq_id,
-// e loga a quantidade total encontrada.
+// Estratégia atual:
+//  - 1º pipeline Mongo: filtra TODOS os segundos que batem (sem links).
+//  - Ordena e pagina por acq_id no Node.
+//  - Para os acq_ids da página, escolhe até N segundos representativos.
+//  - 2º pipeline Mongo: busca links SOMENTE desses segundos (por acq_id/sec).
+//  - Anexa links apenas nesses poucos segundos; os demais vêm com links = [].
 
 import { Prisma } from "@prisma/client";
 import prismaClient from "../prisma";
@@ -107,6 +111,28 @@ const VEHICLE_NORMALIZATION: Record<string, string> = {
   "daf cf 410": "DAF CF 410",
   "renegade": "Renegade",
 };
+
+// Quantidade máxima de segundos que terão links por aquisição (na página atual)
+const MAX_SECS_WITH_LINKS_PER_ACQ = 5;
+
+/**
+ * Dado um array de segundos ordenados, escolhe até `limit` segundos
+ * "espalhados" ao longo do intervalo (não apenas os primeiros).
+ */
+function pickRepresentativeSeconds(sortedSecs: number[], limit: number): number[] {
+  const n = sortedSecs.length;
+  if (n <= limit) return sortedSecs.slice();
+
+  const result: number[] = [];
+  for (let i = 0; i < limit; i++) {
+    const idx = Math.floor((i * (n - 1)) / (limit - 1));
+    const sec = sortedSecs[idx];
+    if (!result.includes(sec)) {
+      result.push(sec);
+    }
+  }
+  return result;
+}
 
 function buildMongoMatch(q: SearchQuery): Record<string, any> {
   const and: any[] = [];
@@ -354,7 +380,7 @@ class SearchBigService {
     const isEmptyMatch =
       !match || (Object.keys(match).length === 0 && match.constructor === Object);
 
-    // Proteção: evita varrer e ordenar a coleção inteira sem filtro
+    // Proteção: evita varrer a coleção inteira sem nenhum filtro.
     if (isEmptyMatch) {
       console.warn("[SearchBigService] empty $match – aborting full scan");
       return {
@@ -367,6 +393,7 @@ class SearchBigService {
       };
     }
 
+    // 1º pipeline: busca todos os segundos que batem, SEM links (JSON leve)
     const pipeline: Prisma.InputJsonValue[] = [
       { $match: match },
       {
@@ -375,16 +402,14 @@ class SearchBigService {
           acq_id_raw: 1,
           acq_name: 1,
           sec: 1,
-          links: 1,
+          // links intencionalmente fora aqui
         },
       },
-      // 🔁 Removido $sort do Mongo para evitar erro 292 (limite de memória do sort).
-      // A ordenação será feita em memória no Node após o aggregateRaw.
     ];
 
     console.log(
-      "[SearchBigService] aggregateRaw pipeline:",
-      JSON.stringify(pipeline)
+      "[SearchBigService] aggregateRaw pipeline (passo 1, sem links):",
+      JSON.stringify(pipeline),
     );
 
     let raw;
@@ -393,65 +418,164 @@ class SearchBigService {
         pipeline,
       });
     } catch (err) {
-      console.error("[SearchBigService] aggregateRaw ERROR:", err);
+      console.error("[SearchBigService] aggregateRaw (passo 1) ERROR:", err);
       throw err;
     }
 
     const rawArr = raw as unknown as any[];
 
-    let rows: SearchHit[] = rawArr.map((doc: any) => ({
+    // Mapeia todos os hits SEM links por enquanto
+    const allRows: SearchHit[] = rawArr.map((doc: any) => ({
       acq_id: typeof doc.acq_id === "number" ? doc.acq_id : null,
       acq_id_raw: doc.acq_id_raw ?? null,
       acq_name: doc.acq_name ?? null,
       sec: doc.sec ?? 0,
-      links: Array.isArray(doc.links) ? (doc.links as LinkObj[]) : [],
+      links: [], // preencheremos somente em alguns segundos no passo 2
     }));
 
-    // 🔎 Mantém apenas segundos que têm pelo menos 1 link
-    const rowsWithLinks = rows.filter((h) => h.links && h.links.length > 0);
-
-    // 🔁 Ordena em memória por acq_id, depois sec
-    rowsWithLinks.sort((a, b) => {
+    // Ordena por acq_id, depois sec
+    allRows.sort((a, b) => {
       const aId = a.acq_id ?? 0;
       const bId = b.acq_id ?? 0;
       if (aId !== bId) return aId - bId;
       return a.sec - b.sec;
     });
 
-    // 🔔 LOG SIMPLES PRA DEBUG
     const uniqueAcqIds = Array.from(
-      new Set(
-        rowsWithLinks.map((h) => h.acq_id).filter((x): x is number => x != null),
-      ),
+      new Set(allRows.map((h) => h.acq_id).filter((x): x is number => x != null)),
     );
-    console.log("[SearchBigService] total docs agregados:", rawArr.length);
-    console.log("[SearchBigService] docs com links:", rowsWithLinks.length);
+
+    console.log("[SearchBigService] total docs agregados (sem links):", rawArr.length);
     console.log("[SearchBigService] acq_ids únicos:", uniqueAcqIds.length);
 
-    // Agora, SEM corte: TODOS os segundos com link que bateram
-    const allHits = rowsWithLinks;
-
-    // paginação por acq_id (a View agrupa por acq_id)
-    const acqOrder = uniqueAcqIds; // já está em ordem crescente pelo sort acima
+    // Paginação por acq_id
+    const acqOrder = uniqueAcqIds;
     const totalAcq = acqOrder.length;
 
     const startIndex = (page - 1) * perPage;
     const pageAcqIds = acqOrder.slice(startIndex, startIndex + perPage);
     const pageSet = new Set(pageAcqIds);
 
-    const pageHits = allHits.filter(
+    // Hits da página atual (sem links ainda)
+    const pageHits = allRows.filter(
       (h) => h.acq_id != null && pageSet.has(h.acq_id as number),
     );
 
     const hasMore = startIndex + perPage < totalAcq;
+
+    // Se não há hits na página, já retorna daqui
+    if (!pageHits.length) {
+      return {
+        page,
+        per_page: perPage,
+        has_more: hasMore,
+        matched_acq_ids: totalAcq,
+        total_hits: allRows.length,
+        items: [],
+      };
+    }
+
+    // Para cada acq_id da página, escolhe até N segundos representativos
+    type Pair = { acq_id: number; sec: number };
+
+    const pairsToFetchLinks: Pair[] = [];
+    const secsByAcq: Map<number, number[]> = new Map();
+
+    // Agrupa segundos por acq_id
+    for (const h of pageHits) {
+      if (h.acq_id == null) continue;
+      const arr = secsByAcq.get(h.acq_id) ?? [];
+      arr.push(h.sec);
+      secsByAcq.set(h.acq_id, arr);
+    }
+
+    // Para cada acq_id, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ
+    for (const [acqId, secs] of secsByAcq.entries()) {
+      const sortedSecs = Array.from(new Set(secs)).sort((a, b) => a - b);
+      const selectedSecs = pickRepresentativeSeconds(
+        sortedSecs,
+        MAX_SECS_WITH_LINKS_PER_ACQ,
+      );
+      for (const s of selectedSecs) {
+        pairsToFetchLinks.push({ acq_id: acqId, sec: s });
+      }
+    }
+
+    console.log(
+      "[SearchBigService] segundos que terão links (por acq_id):",
+      JSON.stringify(pairsToFetchLinks),
+    );
+
+    // 2º pipeline: busca links APENAS para (acq_id, sec) selecionados
+    let linksByKey = new Map<string, LinkObj[]>();
+
+    if (pairsToFetchLinks.length) {
+      const orConds = pairsToFetchLinks.map((p) => ({
+        acq_id: p.acq_id,
+        sec: p.sec,
+      }));
+
+      const pipelineLinks: Prisma.InputJsonValue[] = [
+        { $match: { $or: orConds } },
+        {
+          $project: {
+            acq_id: 1,
+            sec: 1,
+            links: 1,
+          },
+        },
+      ];
+
+      console.log(
+        "[SearchBigService] aggregateRaw pipeline (passo 2, links apenas):",
+        JSON.stringify(pipelineLinks),
+      );
+
+      try {
+        const rawLinks = (await prismaClient.big1Hz.aggregateRaw({
+          pipeline: pipelineLinks,
+        })) as unknown as any[];
+
+        linksByKey = new Map(
+          rawLinks.map((doc: any) => {
+            const acqId = typeof doc.acq_id === "number" ? doc.acq_id : null;
+            const sec = doc.sec ?? 0;
+            const key = `${acqId ?? 0}_${sec}`;
+            const linksArr: LinkObj[] = Array.isArray(doc.links)
+              ? (doc.links as LinkObj[])
+              : [];
+            return [key, linksArr];
+          }),
+        );
+
+        console.log(
+          "[SearchBigService] docs com links retornados no passo 2:",
+          rawLinks.length,
+        );
+      } catch (err) {
+        console.error("[SearchBigService] aggregateRaw (passo 2) ERROR:", err);
+        // Em caso de erro, segue sem links (melhor do que quebrar a busca)
+      }
+    }
+
+    // Anexa links somente nos segundos selecionados; demais ficam com []
+    const enrichedPageHits = pageHits.map((h) => {
+      if (h.acq_id == null) return h;
+      const key = `${h.acq_id}_${h.sec}`;
+      const links = linksByKey.get(key) ?? [];
+      return {
+        ...h,
+        links,
+      };
+    });
 
     return {
       page,
       per_page: perPage,
       has_more: hasMore,
       matched_acq_ids: totalAcq,
-      total_hits: allHits.length,
-      items: pageHits,
+      total_hits: allRows.length,
+      items: enrichedPageHits,
     };
   }
 }
