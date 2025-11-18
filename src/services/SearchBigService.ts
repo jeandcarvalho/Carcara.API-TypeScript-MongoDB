@@ -1,12 +1,12 @@
-
 // src/services/SearchBigService.ts
 // Busca em big_1hz com filtros do front (Search.tsx)
-// Estratégia atual:
+//
+// Estratégia:
 //  - 1º pipeline Mongo: filtra TODOS os segundos que batem (sem links).
 //  - Ordena e pagina por acq_id no Node.
 //  - Para os acq_ids da página, escolhe até N segundos representativos.
 //  - 2º pipeline Mongo: busca links SOMENTE desses segundos (por acq_id/sec).
-//  - Anexa links apenas nesses poucos segundos; os demais vêm com links = [].
+//  - Anexa um único link nesses poucos segundos; os demais vêm sem 'link'.
 
 import { Prisma } from "@prisma/client";
 import prismaClient from "../prisma";
@@ -50,14 +50,11 @@ type SearchQuery = {
   "y.dist_m"?: string;
 };
 
-type LinkObj = { ext?: string; link?: string };
-
 type SearchHit = {
   acq_id: number | null;
-  acq_id_raw: string | null;
-  acq_name: string | null;
   sec: number;
-  links: LinkObj[];
+  // só presente quando tiver link para esse segundo
+  link?: string;
 };
 
 /* ================= Helpers ================= */
@@ -112,7 +109,7 @@ const VEHICLE_NORMALIZATION: Record<string, string> = {
   "renegade": "Renegade",
 };
 
-// Quantidade máxima de segundos que terão links por aquisição (na página atual)
+// Quantidade máxima de segundos que terão link por aquisição (na página atual)
 const MAX_SECS_WITH_LINKS_PER_ACQ = 5;
 
 /**
@@ -399,10 +396,7 @@ class SearchBigService {
       {
         $project: {
           acq_id: 1,
-          acq_id_raw: 1,
-          acq_name: 1,
           sec: 1,
-          // links intencionalmente fora aqui
         },
       },
     ];
@@ -424,13 +418,10 @@ class SearchBigService {
 
     const rawArr = raw as unknown as any[];
 
-    // Mapeia todos os hits SEM links por enquanto
+    // Mapeia todos os hits SEM link por enquanto
     const allRows: SearchHit[] = rawArr.map((doc: any) => ({
       acq_id: typeof doc.acq_id === "number" ? doc.acq_id : null,
-      acq_id_raw: doc.acq_id_raw ?? null,
-      acq_name: doc.acq_name ?? null,
       sec: doc.sec ?? 0,
-      links: [], // preencheremos somente em alguns segundos no passo 2
     }));
 
     // Ordena por acq_id, depois sec
@@ -456,7 +447,7 @@ class SearchBigService {
     const pageAcqIds = acqOrder.slice(startIndex, startIndex + perPage);
     const pageSet = new Set(pageAcqIds);
 
-    // Hits da página atual (sem links ainda)
+    // Hits da página atual (sem link ainda)
     const pageHits = allRows.filter(
       (h) => h.acq_id != null && pageSet.has(h.acq_id as number),
     );
@@ -502,12 +493,12 @@ class SearchBigService {
     }
 
     console.log(
-      "[SearchBigService] segundos que terão links (por acq_id):",
+      "[SearchBigService] segundos que terão link (por acq_id):",
       JSON.stringify(pairsToFetchLinks),
     );
 
     // 2º pipeline: busca links APENAS para (acq_id, sec) selecionados
-    let linksByKey = new Map<string, LinkObj[]>();
+    const linksByKey = new Map<string, string>();
 
     if (pairsToFetchLinks.length) {
       const orConds = pairsToFetchLinks.map((p) => ({
@@ -536,21 +527,29 @@ class SearchBigService {
           pipeline: pipelineLinks,
         })) as unknown as any[];
 
-        linksByKey = new Map(
-          rawLinks.map((doc: any) => {
-            const acqId = typeof doc.acq_id === "number" ? doc.acq_id : null;
-            const sec = doc.sec ?? 0;
-            const key = `${acqId ?? 0}_${sec}`;
-            const linksArr: LinkObj[] = Array.isArray(doc.links)
-              ? (doc.links as LinkObj[])
-              : [];
-            return [key, linksArr];
-          }),
-        );
+        for (const doc of rawLinks) {
+          const acqId = typeof doc.acq_id === "number" ? doc.acq_id : null;
+          const sec = doc.sec ?? 0;
+          if (acqId == null) continue;
+
+          const key = `${acqId}_${sec}`;
+          let linkStr: string | undefined;
+
+          if (Array.isArray(doc.links) && doc.links.length > 0) {
+            const first = doc.links[0];
+            if (first && typeof first.link === "string") {
+              linkStr = first.link;
+            }
+          }
+
+          if (linkStr) {
+            linksByKey.set(key, linkStr);
+          }
+        }
 
         console.log(
           "[SearchBigService] docs com links retornados no passo 2:",
-          rawLinks.length,
+          linksByKey.size,
         );
       } catch (err) {
         console.error("[SearchBigService] aggregateRaw (passo 2) ERROR:", err);
@@ -558,14 +557,15 @@ class SearchBigService {
       }
     }
 
-    // Anexa links somente nos segundos selecionados; demais ficam com []
-    const enrichedPageHits = pageHits.map((h) => {
+    // Anexa link somente nos segundos selecionados; demais ficam sem 'link'
+    const enrichedPageHits: SearchHit[] = pageHits.map((h) => {
       if (h.acq_id == null) return h;
       const key = `${h.acq_id}_${h.sec}`;
-      const links = linksByKey.get(key) ?? [];
+      const link = linksByKey.get(key);
+      if (!link) return h;
       return {
         ...h,
-        links,
+        link,
       };
     });
 
