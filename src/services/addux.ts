@@ -100,33 +100,20 @@ const LANDUSE_GROUPS: Record<string, string[]> = {
   agro: ["farmland", "farmyard", "orchard", "meadow"],
 };
 
-// Forma canônica dos veículos armazenados no big_1hz
-const VEHICLE_NORMALIZATION: Record<string, string> = {
-  "captur": "Captur",
-  "daf cf 410": "DAF CF 410",
-  "renegade": "Renegade",
-};
-
 function buildMongoMatch(q: SearchQuery): Record<string, any> {
   const and: any[] = [];
 
-  // ---- blocks: vehicle (normaliza para forma canônica) ----
-  const bVehiclesRaw = splitList(q["b.vehicle"]);
-  if (bVehiclesRaw.length) {
-    const bVehicles = bVehiclesRaw.map((v) => {
-      const key = v.toLowerCase();
-      return VEHICLE_NORMALIZATION[key] ?? v;
-    });
+  // ---- blocks ----
+  const bVehicles = splitList(q["b.vehicle"]);
+  if (bVehicles.length) {
     and.push({ "block.vehicle": { $in: bVehicles } });
   }
 
-  // ---- blocks: period ----
   const bPeriods = splitList(q["b.period"]);
   if (bPeriods.length) {
     and.push({ "block.meteo.period": { $in: bPeriods } });
   }
 
-  // ---- blocks: condition ----
   const bConditions = splitList(q["b.condition"]);
   if (bConditions.length) {
     and.push({ "block.meteo.condition": { $in: bConditions } });
@@ -169,14 +156,9 @@ function buildMongoMatch(q: SearchQuery): Record<string, any> {
     else if (ors.length > 1) and.push({ $or: ors });
   }
 
-  // ---- CAN: freio (limpa padrão b'...') ----
-  const rawBrakes = splitList(q["c.brakes"]);
-  if (rawBrakes.length) {
-    const brakes = rawBrakes.map((v) => {
-      const m = v.match(/^b'(.*)'$/);
-      return m ? m[1] : v;
-    });
-
+  // ---- CAN: freio ----
+  const brakes = splitList(q["c.brakes"]);
+  if (brakes.length) {
     and.push({ "can.BrakeInfoStatus": { $in: brakes } });
   }
 
