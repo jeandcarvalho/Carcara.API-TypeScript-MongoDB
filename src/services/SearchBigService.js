@@ -337,12 +337,23 @@ class SearchBigService {
             // Proteção: evita varrer a coleção inteira sem nenhum filtro.
             if (isEmptyMatch) {
                 console.warn("[SearchBigService] empty $match – aborting full scan");
+                const counts = {
+                    matched_acq_ids: 0,
+                    matched_seconds: 0,
+                };
+                const page_info = {
+                    page,
+                    per_page: perPage,
+                    has_more: false,
+                    total: 0,
+                    total_pages: 0,
+                };
                 return {
                     page,
                     per_page: perPage,
                     has_more: false,
-                    matched_acq_ids: 0,
-                    total_hits: 0,
+                    counts,
+                    page_info,
                     items: [],
                 };
             }
@@ -391,6 +402,7 @@ class SearchBigService {
             // Paginação por acq_id
             const acqOrder = uniqueAcqIds;
             const totalAcq = acqOrder.length;
+            const matchedSeconds = allRows.length;
             const startIndex = (page - 1) * perPage;
             const pageAcqIds = acqOrder.slice(startIndex, startIndex + perPage);
             const pageSet = new Set(pageAcqIds);
@@ -399,12 +411,23 @@ class SearchBigService {
             const hasMore = startIndex + perPage < totalAcq;
             // Se não há hits na página, já retorna daqui
             if (!pageHits.length) {
+                const counts = {
+                    matched_acq_ids: totalAcq,
+                    matched_seconds: matchedSeconds,
+                };
+                const page_info = {
+                    page,
+                    per_page: perPage,
+                    has_more: hasMore,
+                    total: totalAcq,
+                    total_pages: Math.ceil(totalAcq / perPage),
+                };
                 return {
                     page,
                     per_page: perPage,
                     has_more: hasMore,
-                    matched_acq_ids: totalAcq,
-                    total_hits: allRows.length,
+                    counts,
+                    page_info,
                     items: [],
                 };
             }
@@ -473,7 +496,7 @@ class SearchBigService {
                     // Em caso de erro, segue sem links (melhor do que quebrar a busca)
                 }
             }
-            // Anexa link somente nos segundos selecionados; demais ficam sem 'link'
+            // Anexa link somente nos segundos selecionados
             const enrichedPageHits = pageHits.map((h) => {
                 if (h.acq_id == null)
                     return h;
@@ -483,13 +506,26 @@ class SearchBigService {
                     return h;
                 return Object.assign(Object.assign({}, h), { link });
             });
+            // Só devolve segundos que realmente possuem link
+            const items = enrichedPageHits.filter((h) => typeof h.link === "string" && h.link);
+            const counts = {
+                matched_acq_ids: totalAcq,
+                matched_seconds: matchedSeconds,
+            };
+            const page_info = {
+                page,
+                per_page: perPage,
+                has_more: hasMore,
+                total: totalAcq,
+                total_pages: Math.ceil(totalAcq / perPage),
+            };
             return {
                 page,
                 per_page: perPage,
                 has_more: hasMore,
-                matched_acq_ids: totalAcq,
-                total_hits: allRows.length,
-                items: enrichedPageHits,
+                counts,
+                page_info,
+                items,
             };
         });
     }
