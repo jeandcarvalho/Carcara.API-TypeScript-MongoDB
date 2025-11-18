@@ -1,3 +1,4 @@
+
 // src/services/SearchBigService.ts
 // Busca em big_1hz com filtros do front (Search.tsx)
 // Agora: traz TODOS os segundos com links que baterem, sem limite por acq_id,
@@ -110,13 +111,19 @@ const VEHICLE_NORMALIZATION: Record<string, string> = {
 function buildMongoMatch(q: SearchQuery): Record<string, any> {
   const and: any[] = [];
 
+  console.log("[SearchBigService] buildMongoMatch() - raw query:", JSON.stringify(q));
+
   // ---- blocks: vehicle (normaliza para forma canônica) ----
   const bVehiclesRaw = splitList(q["b.vehicle"]);
+  console.log("[SearchBigService] b.vehicle raw:", q["b.vehicle"]);
+  console.log("[SearchBigService] b.vehicle split:", bVehiclesRaw);
+
   if (bVehiclesRaw.length) {
     const bVehicles = bVehiclesRaw.map((v) => {
       const key = v.toLowerCase();
       return VEHICLE_NORMALIZATION[key] ?? v;
     });
+    console.log("[SearchBigService] b.vehicle normalized:", bVehicles);
     and.push({ "block.vehicle": { $in: bVehicles } });
   }
 
@@ -327,9 +334,13 @@ function buildMongoMatch(q: SearchQuery): Record<string, any> {
     }
   }
 
-  if (!and.length) return {};
-  if (and.length === 1) return and[0];
-  return { $and: and };
+  let match: Record<string, any>;
+  if (!and.length) match = {};
+  else if (and.length === 1) match = and[0];
+  else match = { $and: and };
+
+  console.log("[SearchBigService] final $match:", JSON.stringify(match));
+  return match;
 }
 
 /* ================= Service ================= */
@@ -355,9 +366,20 @@ class SearchBigService {
       { $sort: { acq_id: 1, sec: 1 } },
     ];
 
-    const raw = await prismaClient.big1Hz.aggregateRaw({
-      pipeline,
-    });
+    console.log(
+      "[SearchBigService] aggregateRaw pipeline:",
+      JSON.stringify(pipeline)
+    );
+
+    let raw;
+    try {
+      raw = await prismaClient.big1Hz.aggregateRaw({
+        pipeline,
+      });
+    } catch (err) {
+      console.error("[SearchBigService] aggregateRaw ERROR:", err);
+      throw err;
+    }
 
     const rawArr = raw as unknown as any[];
 
