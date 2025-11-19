@@ -3,10 +3,10 @@
 //
 // Estratégia:
 //  - 1º pipeline Mongo: filtra TODOS os segundos que batem (sem links).
-//  - Ordena e pagina por acq_id no Node (mais novo -> mais velho).
-//  - Para os acq_ids da página, escolhe até N segundos com link (Mongo faz o slice).
+//  - Ordena e pagina por acq_id no Node (mais novo → mais velho).
+//  - Para os acq_ids da página, escolhe até N segundos representativos.
 //  - 2º pipeline Mongo: busca links SOMENTE desses segundos (por acq_id/sec).
-//  - Devolve somente (acq_id, sec, link) dos segundos com link.
+//  - Anexa um único link nesses poucos segundos; os demais vêm sem 'link'.
 
 import { Prisma } from "@prisma/client";
 import prismaClient from "../prisma";
@@ -112,8 +112,10 @@ const VEHICLE_NORMALIZATION: Record<string, string> = {
 // Quantidade máxima de segundos que terão link por aquisição (na página atual)
 const MAX_SECS_WITH_LINKS_PER_ACQ = 5;
 
-/* Só ficou de enfeite aqui, pois o slice agora é feito no pipeline Mongo.
-   Mantive pra se você quiser reaproveitar depois em alguma lógica de Node. */
+/**
+ * Dado um array de segundos ordenados, escolhe até `limit` segundos
+ * "espalhados" ao longo do intervalo (não apenas os primeiros).
+ */
 function pickRepresentativeSeconds(sortedSecs: number[], limit: number): number[] {
   const n = sortedSecs.length;
   if (n <= limit) return sortedSecs.slice();
@@ -435,12 +437,12 @@ class SearchBigService {
       sec: doc.sec ?? 0,
     }));
 
-    // Ordena por acq_id DESC (mais novo primeiro), depois sec ASC
+    // Ordena por acq_id DESC (mais novo → mais velho), depois sec ASC
     allRows.sort((a, b) => {
       const aId = a.acq_id ?? 0;
       const bId = b.acq_id ?? 0;
-      if (aId !== bId) return bId - aId; // 👈 DESC por acq_id
-      return a.sec - b.sec;
+      if (aId !== bId) return bId - aId; // DESC
+      return a.sec - b.sec; // dentro da aquisição, timeline normal
     });
 
     const uniqueAcqIds = Array.from(
@@ -467,7 +469,32 @@ class SearchBigService {
     const hasMore = startIndex + perPage < totalAcq;
 
     // Se não há hits na página, já retorna daqui
-    if (!pageHits.length || !pageAcqIds.length) {
+    if (!pageHits.length) {
+      const counts = {
+        matched_acq_ids: totalAcq,
+        matched_seconds: matchedSeconds,
+      };
+      const page_info = {
+        page,
+        per_page: perPage,
+        has_more: hasMore,
+        total: totalAcq,
+        total_pages: Math.ceil(totalAcq / perPage),
+      };
+      return {
+        page,
+        per_page: perPage,
+        has_more: hasMore,
+        counts,
+        page_info,
+        matched_acq_ids: counts.matched_acq_ids,
+        total_hits: counts.matched_seconds,
+        items: [],
+      };
+    }
+
+    // Se por algum motivo não há acq_ids na página, retorna vazio com contagens
+    if (!pageAcqIds.length) {
       const counts = {
         matched_acq_ids: totalAcq,
         matched_seconds: matchedSeconds,
@@ -509,9 +536,7 @@ class SearchBigService {
           link: "$links.link",
         },
       },
-      // ordena interno por acq_id ASC/sec ASC só pra consistência;
-      // a ordenação final que importa é a do array items (ver mais abaixo).
-      { $sort: { acq_id: 1, sec: 1 } },
+      { $sort: { acq_id: 1, sec: 1 } }, // aqui tanto faz, vamos reordenar em TS depois
       {
         $group: {
           _id: "$acq_id",
@@ -572,19 +597,19 @@ class SearchBigService {
       }
     }
 
-    // Garante ordenação dos items:
-    // acq_id DESC (mais novo primeiro), sec ASC (timeline dentro da aquisição)
-    items.sort((a, b) => {
-      const aId = a.acq_id ?? 0;
-      const bId = b.acq_id ?? 0;
-      if (aId !== bId) return bId - aId; // DESC por acq_id
-      return a.sec - b.sec;
-    });
-
     console.log(
       "[SearchBigService] total items (acq_id/sec com link) devolvidos na página:",
       items.length,
     );
+
+    // Garante que o array final venha em ordem cronológica:
+    // acq_id DESC (mais novo → mais velho), sec ASC
+    items.sort((a, b) => {
+      const aId = a.acq_id ?? 0;
+      const bId = b.acq_id ?? 0;
+      if (aId !== bId) return bId - aId; // mais novo primeiro
+      return a.sec - b.sec;
+    });
 
     const counts = {
       matched_acq_ids: totalAcq,

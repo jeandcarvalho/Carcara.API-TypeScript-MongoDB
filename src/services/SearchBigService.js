@@ -4,7 +4,7 @@
 //
 // Estratégia:
 //  - 1º pipeline Mongo: filtra TODOS os segundos que batem (sem links).
-//  - Ordena e pagina por acq_id no Node.
+//  - Ordena e pagina por acq_id no Node (mais novo → mais velho).
 //  - Para os acq_ids da página, escolhe até N segundos representativos.
 //  - 2º pipeline Mongo: busca links SOMENTE desses segundos (por acq_id/sec).
 //  - Anexa um único link nesses poucos segundos; os demais vêm sem 'link'.
@@ -66,9 +66,9 @@ const LANDUSE_GROUPS = {
 };
 // Forma canônica dos veículos armazenados no big_1hz
 const VEHICLE_NORMALIZATION = {
-    "captur": "Captur",
+    captur: "Captur",
     "daf cf 410": "DAF CF 410",
-    "renegade": "Renegade",
+    renegade: "Renegade",
 };
 // Quantidade máxima de segundos que terão link por aquisição (na página atual)
 const MAX_SECS_WITH_LINKS_PER_ACQ = 5;
@@ -389,19 +389,19 @@ class SearchBigService {
                     sec: (_a = doc.sec) !== null && _a !== void 0 ? _a : 0,
                 });
             });
-            // Ordena por acq_id, depois sec
+            // Ordena por acq_id DESC (mais novo → mais velho), depois sec ASC
             allRows.sort((a, b) => {
                 var _a, _b;
                 const aId = (_a = a.acq_id) !== null && _a !== void 0 ? _a : 0;
                 const bId = (_b = b.acq_id) !== null && _b !== void 0 ? _b : 0;
                 if (aId !== bId)
-                    return aId - bId;
-                return a.sec - b.sec;
+                    return bId - aId; // DESC
+                return a.sec - b.sec; // dentro da aquisição, timeline normal
             });
             const uniqueAcqIds = Array.from(new Set(allRows.map((h) => h.acq_id).filter((x) => x != null)));
             console.log("[SearchBigService] total docs agregados (sem links):", rawArr.length);
             console.log("[SearchBigService] acq_ids únicos:", uniqueAcqIds.length);
-            // Paginação por acq_id
+            // Paginação por acq_id (já em ordem DESC)
             const acqOrder = uniqueAcqIds;
             const totalAcq = acqOrder.length;
             const matchedSeconds = allRows.length;
@@ -473,7 +473,7 @@ class SearchBigService {
                         link: "$links.link",
                     },
                 },
-                { $sort: { acq_id: 1, sec: 1 } },
+                { $sort: { acq_id: 1, sec: 1 } }, // aqui tanto faz, vamos reordenar em TS depois
                 {
                     $group: {
                         _id: "$acq_id",
@@ -528,6 +528,16 @@ class SearchBigService {
                 }
             }
             console.log("[SearchBigService] total items (acq_id/sec com link) devolvidos na página:", items.length);
+            // Garante que o array final venha em ordem cronológica:
+            // acq_id DESC (mais novo → mais velho), sec ASC
+            items.sort((a, b) => {
+                var _a, _b;
+                const aId = (_a = a.acq_id) !== null && _a !== void 0 ? _a : 0;
+                const bId = (_b = b.acq_id) !== null && _b !== void 0 ? _b : 0;
+                if (aId !== bId)
+                    return bId - aId; // mais novo primeiro
+                return a.sec - b.sec;
+            });
             const counts = {
                 matched_acq_ids: totalAcq,
                 matched_seconds: matchedSeconds,
