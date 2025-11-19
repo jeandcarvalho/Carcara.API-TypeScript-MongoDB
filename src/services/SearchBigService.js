@@ -328,7 +328,7 @@ function buildMongoMatch(q) {
 /* ================= Service ================= */
 class SearchBigService {
     execute(query) {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         return __awaiter(this, void 0, void 0, function* () {
             const page = Math.max(1, Number((_a = query.page) !== null && _a !== void 0 ? _a : "1") || 1);
             const perPage = Math.max(1, Number((_b = query.per_page) !== null && _b !== void 0 ? _b : "100") || 100);
@@ -337,23 +337,12 @@ class SearchBigService {
             // Proteção: evita varrer a coleção inteira sem nenhum filtro.
             if (isEmptyMatch) {
                 console.warn("[SearchBigService] empty $match – aborting full scan");
-                const counts = {
-                    matched_acq_ids: 0,
-                    matched_seconds: 0,
-                };
-                const page_info = {
-                    page,
-                    per_page: perPage,
-                    has_more: false,
-                    total: 0,
-                    total_pages: 0,
-                };
                 return {
                     page,
                     per_page: perPage,
                     has_more: false,
-                    counts,
-                    page_info,
+                    matched_acq_ids: 0,
+                    total_hits: 0,
                     items: [],
                 };
             }
@@ -411,23 +400,12 @@ class SearchBigService {
             const hasMore = startIndex + perPage < totalAcq;
             // Se não há hits na página, já retorna daqui
             if (!pageHits.length) {
-                const counts = {
-                    matched_acq_ids: totalAcq,
-                    matched_seconds: matchedSeconds,
-                };
-                const page_info = {
-                    page,
-                    per_page: perPage,
-                    has_more: hasMore,
-                    total: totalAcq,
-                    total_pages: Math.ceil(totalAcq / perPage),
-                };
                 return {
                     page,
                     per_page: perPage,
                     has_more: hasMore,
-                    counts,
-                    page_info,
+                    matched_acq_ids: totalAcq,
+                    total_hits: allRows.length,
                     items: [],
                 };
             }
@@ -441,21 +419,18 @@ class SearchBigService {
                 arr.push(h.sec);
                 secsByAcq.set(h.acq_id, arr);
             }
-            // Para cada acq_id, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ
-            for (const [acqId, secs] of secsByAcq.entries()) {
-                const sortedSecs = Array.from(new Set(secs)).sort((a, b) => a - b);
-                const selectedSecs = pickRepresentativeSeconds(sortedSecs, MAX_SECS_WITH_LINKS_PER_ACQ);
-                for (const s of selectedSecs) {
-                    pairsToFetchLinks.push({ acq_id: acqId, sec: s });
-                }
-            }
-            console.log("[SearchBigService] segundos que terão link (por acq_id):", JSON.stringify(pairsToFetchLinks));
-            // 2º pipeline: busca links APENAS para (acq_id, sec) selecionados
+            // Para cada acq_id, por enquanto só loga os segundos candidatos (pageHits)
+            // (os segundos finais com link serão escolhidos DEPOIS de saber quais realmente têm link)
+            console.log("[SearchBigService] segundos candidatos (pageHits, por acq_id):", JSON.stringify(Array.from(secsByAcq.entries())));
+            // 2º pipeline: busca links para TODOS os segundos da página (pageHits)
+            // depois, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição, apenas entre os que realmente têm link
             const linksByKey = new Map();
-            if (pairsToFetchLinks.length) {
-                const orConds = pairsToFetchLinks.map((p) => ({
-                    acq_id: p.acq_id,
-                    sec: p.sec,
+            if (pageHits.length) {
+                const orConds = pageHits
+                    .filter((h) => h.acq_id != null)
+                    .map((h) => ({
+                    acq_id: h.acq_id,
+                    sec: h.sec,
                 }));
                 const pipelineLinks = [
                     { $match: { $or: orConds } },
@@ -496,18 +471,37 @@ class SearchBigService {
                     // Em caso de erro, segue sem links (melhor do que quebrar a busca)
                 }
             }
-            // Anexa link somente nos segundos selecionados
-            const enrichedPageHits = pageHits.map((h) => {
-                if (h.acq_id == null)
-                    return h;
-                const key = `${h.acq_id}_${h.sec}`;
-                const link = linksByKey.get(key);
+            // A partir dos links encontrados, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição
+            // apenas entre os segundos que realmente possuem link.
+            const secsWithLinkByAcq = new Map();
+            for (const [key, link] of linksByKey.entries()) {
                 if (!link)
-                    return h;
-                return Object.assign(Object.assign({}, h), { link });
-            });
-            // Só devolve segundos que realmente possuem link
-            const items = enrichedPageHits.filter((h) => typeof h.link === "string" && h.link);
+                    continue;
+                const [acqStr, secStr] = key.split("_");
+                const acqId = Number(acqStr);
+                const sec = Number(secStr);
+                if (!Number.isFinite(acqId) || !Number.isFinite(sec))
+                    continue;
+                const arr = (_e = secsWithLinkByAcq.get(acqId)) !== null && _e !== void 0 ? _e : [];
+                arr.push(sec);
+                secsWithLinkByAcq.set(acqId, arr);
+            }
+            const items = [];
+            for (const [acqId, secs] of secsWithLinkByAcq.entries()) {
+                const sortedSecs = Array.from(new Set(secs)).sort((a, b) => a - b);
+                const selectedSecs = pickRepresentativeSeconds(sortedSecs, MAX_SECS_WITH_LINKS_PER_ACQ);
+                for (const s of selectedSecs) {
+                    const key = `${acqId}_${s}`;
+                    const link = linksByKey.get(key);
+                    if (!link)
+                        continue;
+                    items.push({
+                        acq_id: acqId,
+                        sec: s,
+                        link,
+                    });
+                }
+            }
             const counts = {
                 matched_acq_ids: totalAcq,
                 matched_seconds: matchedSeconds,
