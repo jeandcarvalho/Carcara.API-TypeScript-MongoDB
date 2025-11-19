@@ -3,10 +3,10 @@
 //
 // Estratégia:
 //  - 1º pipeline Mongo: filtra TODOS os segundos que batem (sem links).
-//  - Ordena e pagina por acq_id no Node.
-//  - Para os acq_ids da página, escolhe até N segundos representativos.
+//  - Ordena e pagina por acq_id no Node (mais novo -> mais velho).
+//  - Para os acq_ids da página, escolhe até N segundos com link (Mongo faz o slice).
 //  - 2º pipeline Mongo: busca links SOMENTE desses segundos (por acq_id/sec).
-//  - Anexa um único link nesses poucos segundos; os demais vêm sem 'link'.
+//  - Devolve somente (acq_id, sec, link) dos segundos com link.
 
 import { Prisma } from "@prisma/client";
 import prismaClient from "../prisma";
@@ -104,18 +104,16 @@ const LANDUSE_GROUPS: Record<string, string[]> = {
 
 // Forma canônica dos veículos armazenados no big_1hz
 const VEHICLE_NORMALIZATION: Record<string, string> = {
-  "captur": "Captur",
+  captur: "Captur",
   "daf cf 410": "DAF CF 410",
-  "renegade": "Renegade",
+  renegade: "Renegade",
 };
 
 // Quantidade máxima de segundos que terão link por aquisição (na página atual)
 const MAX_SECS_WITH_LINKS_PER_ACQ = 5;
 
-/**
- * Dado um array de segundos ordenados, escolhe até `limit` segundos
- * "espalhados" ao longo do intervalo (não apenas os primeiros).
- */
+/* Só ficou de enfeite aqui, pois o slice agora é feito no pipeline Mongo.
+   Mantive pra se você quiser reaproveitar depois em alguma lógica de Node. */
 function pickRepresentativeSeconds(sortedSecs: number[], limit: number): number[] {
   const n = sortedSecs.length;
   if (n <= limit) return sortedSecs.slice();
@@ -437,11 +435,11 @@ class SearchBigService {
       sec: doc.sec ?? 0,
     }));
 
-    // Ordena por acq_id, depois sec
+    // Ordena por acq_id DESC (mais novo primeiro), depois sec ASC
     allRows.sort((a, b) => {
       const aId = a.acq_id ?? 0;
       const bId = b.acq_id ?? 0;
-      if (aId !== bId) return aId - bId;
+      if (aId !== bId) return bId - aId; // 👈 DESC por acq_id
       return a.sec - b.sec;
     });
 
@@ -452,7 +450,7 @@ class SearchBigService {
     console.log("[SearchBigService] total docs agregados (sem links):", rawArr.length);
     console.log("[SearchBigService] acq_ids únicos:", uniqueAcqIds.length);
 
-    // Paginação por acq_id
+    // Paginação por acq_id (já em ordem DESC)
     const acqOrder = uniqueAcqIds;
     const totalAcq = acqOrder.length;
     const matchedSeconds = allRows.length;
@@ -469,32 +467,7 @@ class SearchBigService {
     const hasMore = startIndex + perPage < totalAcq;
 
     // Se não há hits na página, já retorna daqui
-    if (!pageHits.length) {
-      const counts = {
-        matched_acq_ids: totalAcq,
-        matched_seconds: matchedSeconds,
-      };
-      const page_info = {
-        page,
-        per_page: perPage,
-        has_more: hasMore,
-        total: totalAcq,
-        total_pages: Math.ceil(totalAcq / perPage),
-      };
-      return {
-        page,
-        per_page: perPage,
-        has_more: hasMore,
-        counts,
-        page_info,
-        matched_acq_ids: counts.matched_acq_ids,
-        total_hits: counts.matched_seconds,
-        items: [],
-      };
-    }
-
-    // Se por algum motivo não há acq_ids na página, retorna vazio com contagens
-    if (!pageAcqIds.length) {
+    if (!pageHits.length || !pageAcqIds.length) {
       const counts = {
         matched_acq_ids: totalAcq,
         matched_seconds: matchedSeconds,
@@ -536,6 +509,8 @@ class SearchBigService {
           link: "$links.link",
         },
       },
+      // ordena interno por acq_id ASC/sec ASC só pra consistência;
+      // a ordenação final que importa é a do array items (ver mais abaixo).
       { $sort: { acq_id: 1, sec: 1 } },
       {
         $group: {
@@ -597,6 +572,15 @@ class SearchBigService {
       }
     }
 
+    // Garante ordenação dos items:
+    // acq_id DESC (mais novo primeiro), sec ASC (timeline dentro da aquisição)
+    items.sort((a, b) => {
+      const aId = a.acq_id ?? 0;
+      const bId = b.acq_id ?? 0;
+      if (aId !== bId) return bId - aId; // DESC por acq_id
+      return a.sec - b.sec;
+    });
+
     console.log(
       "[SearchBigService] total items (acq_id/sec com link) devolvidos na página:",
       items.length,
@@ -627,6 +611,5 @@ class SearchBigService {
     };
   }
 }
-
 
 export { SearchBigService };
