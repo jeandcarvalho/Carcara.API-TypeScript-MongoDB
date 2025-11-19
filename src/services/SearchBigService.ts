@@ -380,12 +380,25 @@ class SearchBigService {
     // Proteção: evita varrer a coleção inteira sem nenhum filtro.
     if (isEmptyMatch) {
       console.warn("[SearchBigService] empty $match – aborting full scan");
+      const counts = {
+        matched_acq_ids: 0,
+        matched_seconds: 0,
+      };
+      const page_info = {
+        page,
+        per_page: perPage,
+        has_more: false,
+        total: 0,
+        total_pages: 0,
+      };
       return {
         page,
         per_page: perPage,
         has_more: false,
-        matched_acq_ids: 0,
-        total_hits: 0,
+        counts,
+        page_info,
+        matched_acq_ids: counts.matched_acq_ids,
+        total_hits: counts.matched_seconds,
         items: [],
       };
     }
@@ -444,7 +457,6 @@ class SearchBigService {
     const totalAcq = acqOrder.length;
     const matchedSeconds = allRows.length;
 
-
     const startIndex = (page - 1) * perPage;
     const pageAcqIds = acqOrder.slice(startIndex, startIndex + perPage);
     const pageSet = new Set(pageAcqIds);
@@ -458,133 +470,137 @@ class SearchBigService {
 
     // Se não há hits na página, já retorna daqui
     if (!pageHits.length) {
+      const counts = {
+        matched_acq_ids: totalAcq,
+        matched_seconds: matchedSeconds,
+      };
+      const page_info = {
+        page,
+        per_page: perPage,
+        has_more: hasMore,
+        total: totalAcq,
+        total_pages: Math.ceil(totalAcq / perPage),
+      };
       return {
         page,
         per_page: perPage,
         has_more: hasMore,
-        matched_acq_ids: totalAcq,
-        total_hits: allRows.length,
+        counts,
+        page_info,
+        matched_acq_ids: counts.matched_acq_ids,
+        total_hits: counts.matched_seconds,
         items: [],
       };
     }
 
-    // Para cada acq_id da página, escolhe até N segundos representativos
-    type Pair = { acq_id: number; sec: number };
-
-    const pairsToFetchLinks: Pair[] = [];
-    const secsByAcq: Map<number, number[]> = new Map();
-
-    // Agrupa segundos por acq_id
-    for (const h of pageHits) {
-      if (h.acq_id == null) continue;
-      const arr = secsByAcq.get(h.acq_id) ?? [];
-      arr.push(h.sec);
-      secsByAcq.set(h.acq_id, arr);
+    // Se por algum motivo não há acq_ids na página, retorna vazio com contagens
+    if (!pageAcqIds.length) {
+      const counts = {
+        matched_acq_ids: totalAcq,
+        matched_seconds: matchedSeconds,
+      };
+      const page_info = {
+        page,
+        per_page: perPage,
+        has_more: hasMore,
+        total: totalAcq,
+        total_pages: Math.ceil(totalAcq / perPage),
+      };
+      return {
+        page,
+        per_page: perPage,
+        has_more: hasMore,
+        counts,
+        page_info,
+        matched_acq_ids: counts.matched_acq_ids,
+        total_hits: counts.matched_seconds,
+        items: [],
+      };
     }
 
-    // Para cada acq_id, por enquanto só loga os segundos candidatos (pageHits)
-// (os segundos finais com link serão escolhidos DEPOIS de saber quais realmente têm link)
-    console.log(
-      "[SearchBigService] segundos candidatos (pageHits, por acq_id):",
-      JSON.stringify(Array.from(secsByAcq.entries())),
-    );
-// 2º pipeline: busca links para TODOS os segundos da página (pageHits)
-// depois, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição, apenas entre os que realmente têm link
-    const linksByKey = new Map<string, string>();
-
-    if (pageHits.length) {
-      const orConds = pageHits
-        .filter((h) => h.acq_id != null)
-        .map((h) => ({
-          acq_id: h.acq_id,
-          sec: h.sec,
-        }));
-
-      const pipelineLinks: Prisma.InputJsonValue[] = [
-        { $match: { $or: orConds } },
-        {
-          $project: {
-            acq_id: 1,
-            sec: 1,
-            links: 1,
+    // 2º pipeline: o Mongo já devolve até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição,
+    // apenas para docs da página que realmente têm link.
+    const pipelineLinks: Prisma.InputJsonValue[] = [
+      {
+        $match: {
+          ...match,
+          acq_id: { $in: pageAcqIds },
+          "links.0.link": { $exists: true },
+        },
+      },
+      { $unwind: "$links" },
+      {
+        $project: {
+          acq_id: 1,
+          sec: 1,
+          link: "$links.link",
+        },
+      },
+      { $sort: { acq_id: 1, sec: 1 } },
+      {
+        $group: {
+          _id: "$acq_id",
+          docs: {
+            $push: { sec: "$sec", link: "$link" },
           },
         },
-      ];
+      },
+      {
+        $project: {
+          _id: 0,
+          acq_id: "$_id",
+          docs: { $slice: ["$docs", MAX_SECS_WITH_LINKS_PER_ACQ] },
+        },
+      },
+    ];
 
-      console.log(
-        "[SearchBigService] aggregateRaw pipeline (passo 2, links apenas):",
-        JSON.stringify(pipelineLinks),
-      );
+    console.log(
+      "[SearchBigService] aggregateRaw pipeline (passo 2, links por página):",
+      JSON.stringify(pipelineLinks),
+    );
 
-      try {
-        const rawLinks = (await prismaClient.big1Hz.aggregateRaw({
-          pipeline: pipelineLinks,
-        })) as unknown as any[];
-
-        for (const doc of rawLinks) {
-          const acqId = typeof doc.acq_id === "number" ? doc.acq_id : null;
-          const sec = doc.sec ?? 0;
-          if (acqId == null) continue;
-
-          const key = `${acqId}_${sec}`;
-          let linkStr: string | undefined;
-
-          if (Array.isArray(doc.links) && doc.links.length > 0) {
-            const first = doc.links[0];
-            if (first && typeof first.link === "string") {
-              linkStr = first.link;
-            }
-          }
-
-          if (linkStr) {
-            linksByKey.set(key, linkStr);
-          }
-        }
-
-        console.log(
-          "[SearchBigService] docs com links retornados no passo 2:",
-          linksByKey.size,
-        );
-      } catch (err) {
-        console.error("[SearchBigService] aggregateRaw (passo 2) ERROR:", err);
-        // Em caso de erro, segue sem links (melhor do que quebrar a busca)
-      }
-    }
-
-    // A partir dos links encontrados, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição
-    // apenas entre os segundos que realmente possuem link.
-    const secsWithLinkByAcq: Map<number, number[]> = new Map();
-
-    for (const [key, link] of linksByKey.entries()) {
-      if (!link) continue;
-      const [acqStr, secStr] = key.split("_");
-      const acqId = Number(acqStr);
-      const sec = Number(secStr);
-      if (!Number.isFinite(acqId) || !Number.isFinite(sec)) continue;
-      const arr = secsWithLinkByAcq.get(acqId) ?? [];
-      arr.push(sec);
-      secsWithLinkByAcq.set(acqId, arr);
+    let rawLinks: any[] = [];
+    try {
+      rawLinks = (await prismaClient.big1Hz.aggregateRaw({
+        pipeline: pipelineLinks,
+      })) as unknown as any[];
+    } catch (err) {
+      console.error("[SearchBigService] aggregateRaw (passo 2) ERROR:", err);
+      // Em caso de erro, segue sem links (melhor do que quebrar a busca)
+      rawLinks = [];
     }
 
     const items: SearchHit[] = [];
 
-    for (const [acqId, secs] of secsWithLinkByAcq.entries()) {
-      const sortedSecs = Array.from(new Set(secs)).sort((a, b) => a - b);
-      const selectedSecs = pickRepresentativeSeconds(
-        sortedSecs,
-        MAX_SECS_WITH_LINKS_PER_ACQ,
-      );
-      for (const s of selectedSecs) {
-        const key = `${acqId}_${s}`;
-        const link = linksByKey.get(key);
-        if (!link) continue;
+    for (const group of rawLinks) {
+      const acqIdRaw = (group as any).acq_id;
+      const acqId =
+        typeof acqIdRaw === "number"
+          ? acqIdRaw
+          : Number(acqIdRaw ?? NaN);
+
+      if (!Number.isFinite(acqId)) continue;
+      const docs = (group as any).docs;
+      if (!Array.isArray(docs)) continue;
+
+      for (const d of docs) {
+        const sec = (d as any).sec;
+        const link = (d as any).link;
+        if (typeof sec !== "number") continue;
+        if (typeof link !== "string" || !link) continue;
+
         items.push({
           acq_id: acqId,
-          sec: s,
+          sec,
           link,
         });
       }
     }
+
+    console.log(
+      "[SearchBigService] total items (acq_id/sec com link) devolvidos na página:",
+      items.length,
+    );
 
     const counts = {
       matched_acq_ids: totalAcq,
@@ -605,9 +621,12 @@ class SearchBigService {
       has_more: hasMore,
       counts,
       page_info,
+      matched_acq_ids: counts.matched_acq_ids,
+      total_hits: counts.matched_seconds,
       items,
     };
   }
 }
+
 
 export { SearchBigService };

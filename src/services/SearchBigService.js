@@ -328,7 +328,7 @@ function buildMongoMatch(q) {
 /* ================= Service ================= */
 class SearchBigService {
     execute(query) {
-        var _a, _b, _c, _d, _e;
+        var _a, _b;
         return __awaiter(this, void 0, void 0, function* () {
             const page = Math.max(1, Number((_a = query.page) !== null && _a !== void 0 ? _a : "1") || 1);
             const perPage = Math.max(1, Number((_b = query.per_page) !== null && _b !== void 0 ? _b : "100") || 100);
@@ -337,12 +337,25 @@ class SearchBigService {
             // Proteção: evita varrer a coleção inteira sem nenhum filtro.
             if (isEmptyMatch) {
                 console.warn("[SearchBigService] empty $match – aborting full scan");
+                const counts = {
+                    matched_acq_ids: 0,
+                    matched_seconds: 0,
+                };
+                const page_info = {
+                    page,
+                    per_page: perPage,
+                    has_more: false,
+                    total: 0,
+                    total_pages: 0,
+                };
                 return {
                     page,
                     per_page: perPage,
                     has_more: false,
-                    matched_acq_ids: 0,
-                    total_hits: 0,
+                    counts,
+                    page_info,
+                    matched_acq_ids: counts.matched_acq_ids,
+                    total_hits: counts.matched_seconds,
                     items: [],
                 };
             }
@@ -400,108 +413,121 @@ class SearchBigService {
             const hasMore = startIndex + perPage < totalAcq;
             // Se não há hits na página, já retorna daqui
             if (!pageHits.length) {
+                const counts = {
+                    matched_acq_ids: totalAcq,
+                    matched_seconds: matchedSeconds,
+                };
+                const page_info = {
+                    page,
+                    per_page: perPage,
+                    has_more: hasMore,
+                    total: totalAcq,
+                    total_pages: Math.ceil(totalAcq / perPage),
+                };
                 return {
                     page,
                     per_page: perPage,
                     has_more: hasMore,
-                    matched_acq_ids: totalAcq,
-                    total_hits: allRows.length,
+                    counts,
+                    page_info,
+                    matched_acq_ids: counts.matched_acq_ids,
+                    total_hits: counts.matched_seconds,
                     items: [],
                 };
             }
-            const pairsToFetchLinks = [];
-            const secsByAcq = new Map();
-            // Agrupa segundos por acq_id
-            for (const h of pageHits) {
-                if (h.acq_id == null)
-                    continue;
-                const arr = (_c = secsByAcq.get(h.acq_id)) !== null && _c !== void 0 ? _c : [];
-                arr.push(h.sec);
-                secsByAcq.set(h.acq_id, arr);
+            // Se por algum motivo não há acq_ids na página, retorna vazio com contagens
+            if (!pageAcqIds.length) {
+                const counts = {
+                    matched_acq_ids: totalAcq,
+                    matched_seconds: matchedSeconds,
+                };
+                const page_info = {
+                    page,
+                    per_page: perPage,
+                    has_more: hasMore,
+                    total: totalAcq,
+                    total_pages: Math.ceil(totalAcq / perPage),
+                };
+                return {
+                    page,
+                    per_page: perPage,
+                    has_more: hasMore,
+                    counts,
+                    page_info,
+                    matched_acq_ids: counts.matched_acq_ids,
+                    total_hits: counts.matched_seconds,
+                    items: [],
+                };
             }
-            // Para cada acq_id, por enquanto só loga os segundos candidatos (pageHits)
-            // (os segundos finais com link serão escolhidos DEPOIS de saber quais realmente têm link)
-            console.log("[SearchBigService] segundos candidatos (pageHits, por acq_id):", JSON.stringify(Array.from(secsByAcq.entries())));
-            // 2º pipeline: busca links para TODOS os segundos da página (pageHits)
-            // depois, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição, apenas entre os que realmente têm link
-            const linksByKey = new Map();
-            if (pageHits.length) {
-                const orConds = pageHits
-                    .filter((h) => h.acq_id != null)
-                    .map((h) => ({
-                    acq_id: h.acq_id,
-                    sec: h.sec,
-                }));
-                const pipelineLinks = [
-                    { $match: { $or: orConds } },
-                    {
-                        $project: {
-                            acq_id: 1,
-                            sec: 1,
-                            links: 1,
+            // 2º pipeline: o Mongo já devolve até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição,
+            // apenas para docs da página que realmente têm link.
+            const pipelineLinks = [
+                {
+                    $match: Object.assign(Object.assign({}, match), { acq_id: { $in: pageAcqIds }, "links.0.link": { $exists: true } }),
+                },
+                { $unwind: "$links" },
+                {
+                    $project: {
+                        acq_id: 1,
+                        sec: 1,
+                        link: "$links.link",
+                    },
+                },
+                { $sort: { acq_id: 1, sec: 1 } },
+                {
+                    $group: {
+                        _id: "$acq_id",
+                        docs: {
+                            $push: { sec: "$sec", link: "$link" },
                         },
                     },
-                ];
-                console.log("[SearchBigService] aggregateRaw pipeline (passo 2, links apenas):", JSON.stringify(pipelineLinks));
-                try {
-                    const rawLinks = (yield prisma_1.default.big1Hz.aggregateRaw({
-                        pipeline: pipelineLinks,
-                    }));
-                    for (const doc of rawLinks) {
-                        const acqId = typeof doc.acq_id === "number" ? doc.acq_id : null;
-                        const sec = (_d = doc.sec) !== null && _d !== void 0 ? _d : 0;
-                        if (acqId == null)
-                            continue;
-                        const key = `${acqId}_${sec}`;
-                        let linkStr;
-                        if (Array.isArray(doc.links) && doc.links.length > 0) {
-                            const first = doc.links[0];
-                            if (first && typeof first.link === "string") {
-                                linkStr = first.link;
-                            }
-                        }
-                        if (linkStr) {
-                            linksByKey.set(key, linkStr);
-                        }
-                    }
-                    console.log("[SearchBigService] docs com links retornados no passo 2:", linksByKey.size);
-                }
-                catch (err) {
-                    console.error("[SearchBigService] aggregateRaw (passo 2) ERROR:", err);
-                    // Em caso de erro, segue sem links (melhor do que quebrar a busca)
-                }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        acq_id: "$_id",
+                        docs: { $slice: ["$docs", MAX_SECS_WITH_LINKS_PER_ACQ] },
+                    },
+                },
+            ];
+            console.log("[SearchBigService] aggregateRaw pipeline (passo 2, links por página):", JSON.stringify(pipelineLinks));
+            let rawLinks = [];
+            try {
+                rawLinks = (yield prisma_1.default.big1Hz.aggregateRaw({
+                    pipeline: pipelineLinks,
+                }));
             }
-            // A partir dos links encontrados, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição
-            // apenas entre os segundos que realmente possuem link.
-            const secsWithLinkByAcq = new Map();
-            for (const [key, link] of linksByKey.entries()) {
-                if (!link)
-                    continue;
-                const [acqStr, secStr] = key.split("_");
-                const acqId = Number(acqStr);
-                const sec = Number(secStr);
-                if (!Number.isFinite(acqId) || !Number.isFinite(sec))
-                    continue;
-                const arr = (_e = secsWithLinkByAcq.get(acqId)) !== null && _e !== void 0 ? _e : [];
-                arr.push(sec);
-                secsWithLinkByAcq.set(acqId, arr);
+            catch (err) {
+                console.error("[SearchBigService] aggregateRaw (passo 2) ERROR:", err);
+                // Em caso de erro, segue sem links (melhor do que quebrar a busca)
+                rawLinks = [];
             }
             const items = [];
-            for (const [acqId, secs] of secsWithLinkByAcq.entries()) {
-                const sortedSecs = Array.from(new Set(secs)).sort((a, b) => a - b);
-                const selectedSecs = pickRepresentativeSeconds(sortedSecs, MAX_SECS_WITH_LINKS_PER_ACQ);
-                for (const s of selectedSecs) {
-                    const key = `${acqId}_${s}`;
-                    const link = linksByKey.get(key);
-                    if (!link)
+            for (const group of rawLinks) {
+                const acqIdRaw = group.acq_id;
+                const acqId = typeof acqIdRaw === "number"
+                    ? acqIdRaw
+                    : Number(acqIdRaw !== null && acqIdRaw !== void 0 ? acqIdRaw : NaN);
+                if (!Number.isFinite(acqId))
+                    continue;
+                const docs = group.docs;
+                if (!Array.isArray(docs))
+                    continue;
+                for (const d of docs) {
+                    const sec = d.sec;
+                    const link = d.link;
+                    if (typeof sec !== "number")
+                        continue;
+                    if (typeof link !== "string" || !link)
                         continue;
                     items.push({
                         acq_id: acqId,
-                        sec: s,
+                        sec,
                         link,
                     });
                 }
             }
+            console.log("[SearchBigService] total items (acq_id/sec com link) devolvidos na página:", items.length);
             const counts = {
                 matched_acq_ids: totalAcq,
                 matched_seconds: matchedSeconds,
@@ -519,6 +545,8 @@ class SearchBigService {
                 has_more: hasMore,
                 counts,
                 page_info,
+                matched_acq_ids: counts.matched_acq_ids,
+                total_hits: counts.matched_seconds,
                 items,
             };
         });
