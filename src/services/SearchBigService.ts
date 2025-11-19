@@ -5,8 +5,9 @@
 //  - 1º pipeline Mongo: filtra TODOS os segundos que batem (sem links).
 //  - Ordena e pagina por acq_id no Node (mais novo → mais velho).
 //  - Para os acq_ids da página, escolhe até N segundos representativos.
-//  - 2º pipeline Mongo: busca links SOMENTE desses segundos (por acq_id/sec).
-//  - Anexa um único link nesses poucos segundos; os demais vêm sem 'link'.
+//  - 2º pipeline Mongo: busca links SOMENTE desses segundos (por acq_id/sec),
+//    mas agora o fatiamento (até 5 por aquisição, bem espalhados) é feito em TS.
+//  - Anexa um único link nesses poucos segundos; os demais segundos ficam sem 'link'.
 
 import { Prisma } from "@prisma/client";
 import prismaClient from "../prisma";
@@ -518,8 +519,10 @@ class SearchBigService {
       };
     }
 
-    // 2º pipeline: o Mongo já devolve até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição,
-    // apenas para docs da página que realmente têm link.
+    // 2º pipeline: busca TODOS os docs com link dos acq_ids da página
+    // (já filtrados pelo mesmo $match). O fatiamento para 5 segundos
+    // bem espaçados por aquisição será feito em TypeScript com
+    // pickRepresentativeSeconds().
     const pipelineLinks: Prisma.InputJsonValue[] = [
       {
         $match: {
@@ -536,22 +539,7 @@ class SearchBigService {
           link: "$links.link",
         },
       },
-      { $sort: { acq_id: 1, sec: 1 } }, // aqui tanto faz, vamos reordenar em TS depois
-      {
-        $group: {
-          _id: "$acq_id",
-          docs: {
-            $push: { sec: "$sec", link: "$link" },
-          },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          acq_id: "$_id",
-          docs: { $slice: ["$docs", MAX_SECS_WITH_LINKS_PER_ACQ] },
-        },
-      },
+      { $sort: { acq_id: 1, sec: 1 } }, // dentro de cada aquisição, timeline normal
     ];
 
     console.log(
@@ -570,30 +558,53 @@ class SearchBigService {
       rawLinks = [];
     }
 
+    // Agrupa por acq_id em memória
+    const groupedLinks = new Map<
+      number,
+      { sec: number; link: string }[]
+    >();
+
+    for (const doc of rawLinks) {
+      const acqIdRaw = (doc as any).acq_id;
+      const acqId =
+        typeof acqIdRaw === "number" ? acqIdRaw : Number(acqIdRaw ?? NaN);
+      if (!Number.isFinite(acqId)) continue;
+
+      const sec = (doc as any).sec;
+      const link = (doc as any).link;
+      if (typeof sec !== "number") continue;
+      if (typeof link !== "string" || !link) continue;
+
+      if (!groupedLinks.has(acqId)) {
+        groupedLinks.set(acqId, []);
+      }
+      groupedLinks.get(acqId)!.push({ sec, link });
+    }
+
     const items: SearchHit[] = [];
 
-    for (const group of rawLinks) {
-      const acqIdRaw = (group as any).acq_id;
-      const acqId =
-        typeof acqIdRaw === "number"
-          ? acqIdRaw
-          : Number(acqIdRaw ?? NaN);
+    // Para cada aquisição, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ
+    // segundos bem distribuídos ao longo da timeline.
+    for (const [acqId, docs] of groupedLinks.entries()) {
+      // Ordena por sec
+      docs.sort((a, b) => a.sec - b.sec);
 
-      if (!Number.isFinite(acqId)) continue;
-      const docs = (group as any).docs;
-      if (!Array.isArray(docs)) continue;
+      const secs = docs.map((d) => d.sec);
+      const chosenSecs = new Set(
+        pickRepresentativeSeconds(secs, MAX_SECS_WITH_LINKS_PER_ACQ),
+      );
+
+      const usedSecs = new Set<number>();
 
       for (const d of docs) {
-        const sec = (d as any).sec;
-        const link = (d as any).link;
-        if (typeof sec !== "number") continue;
-        if (typeof link !== "string" || !link) continue;
-
+        if (!chosenSecs.has(d.sec)) continue;
+        if (usedSecs.has(d.sec)) continue; // garante 1 link por segundo
         items.push({
           acq_id: acqId,
-          sec,
-          link,
+          sec: d.sec,
+          link: d.link,
         });
+        usedSecs.add(d.sec);
       }
     }
 
