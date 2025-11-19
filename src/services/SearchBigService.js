@@ -5,10 +5,11 @@
 // Estratégia:
 //  - 1º pipeline Mongo: filtra TODOS os segundos que batem (sem links).
 //  - Ordena e pagina por acq_id no Node (mais novo → mais velho).
-//  - Para os acq_ids da página, escolhe até N segundos representativos.
-//  - 2º pipeline Mongo: busca links SOMENTE desses segundos (por acq_id/sec),
-//    mas agora o fatiamento (até 5 por aquisição, bem espalhados) é feito em TS.
-//  - Anexa um único link nesses poucos segundos; os demais segundos ficam sem 'link'.
+//  - Para os acq_ids da página, o Mongo escolhe até N segundos representativos
+//    (espalhados ao longo do tempo) com links.
+//  - 2º pipeline Mongo: já devolve no máximo N segundos por aquisição com link,
+//    com os segundos bem distribuídos (feito direto no pipeline).
+//  - O Node só converte esse resultado em items e ordena.
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -73,24 +74,6 @@ const VEHICLE_NORMALIZATION = {
 };
 // Quantidade máxima de segundos que terão link por aquisição (na página atual)
 const MAX_SECS_WITH_LINKS_PER_ACQ = 5;
-/**
- * Dado um array de segundos ordenados, escolhe até `limit` segundos
- * "espalhados" ao longo do intervalo (não apenas os primeiros).
- */
-function pickRepresentativeSeconds(sortedSecs, limit) {
-    const n = sortedSecs.length;
-    if (n <= limit)
-        return sortedSecs.slice();
-    const result = [];
-    for (let i = 0; i < limit; i++) {
-        const idx = Math.floor((i * (n - 1)) / (limit - 1));
-        const sec = sortedSecs[idx];
-        if (!result.includes(sec)) {
-            result.push(sec);
-        }
-    }
-    return result;
-}
 function buildMongoMatch(q) {
     const and = [];
     console.log("[SearchBigService] buildMongoMatch() - raw query:", JSON.stringify(q));
@@ -460,10 +443,9 @@ class SearchBigService {
                     items: [],
                 };
             }
-            // 2º pipeline: busca TODOS os docs com link dos acq_ids da página
-            // (já filtrados pelo mesmo $match). O fatiamento para 5 segundos
-            // bem espaçados por aquisição será feito em TypeScript com
-            // pickRepresentativeSeconds().
+            // 2º pipeline: o Mongo já devolve até MAX_SECS_WITH_LINKS_PER_ACQ por aquisição,
+            // com segundos bem ESPALHADOS ao longo do intervalo de docs com link.
+            const L = MAX_SECS_WITH_LINKS_PER_ACQ;
             const pipelineLinks = [
                 {
                     $match: Object.assign(Object.assign({}, match), { acq_id: { $in: pageAcqIds }, "links.0.link": { $exists: true } }),
@@ -476,7 +458,61 @@ class SearchBigService {
                         link: "$links.link",
                     },
                 },
-                { $sort: { acq_id: 1, sec: 1 } }, // dentro de cada aquisição, timeline normal
+                { $sort: { acq_id: 1, sec: 1 } }, // garante ordenação temporal por aquisição
+                {
+                    $group: {
+                        _id: "$acq_id",
+                        docs: { $push: { sec: "$sec", link: "$link" } },
+                    },
+                },
+                {
+                    $set: {
+                        total: { $size: "$docs" },
+                    },
+                },
+                {
+                    $set: {
+                        sampledDocs: {
+                            $cond: [
+                                { $lte: ["$total", L] },
+                                // Se tem L ou menos docs, usa tudo:
+                                "$docs",
+                                // Se tem mais de L, pega L posições espalhadas:
+                                {
+                                    $map: {
+                                        input: { $range: [0, L] }, // [0,1,2,3,4] se L=5
+                                        as: "i",
+                                        in: {
+                                            $arrayElemAt: [
+                                                "$docs",
+                                                {
+                                                    $floor: {
+                                                        $divide: [
+                                                            {
+                                                                $multiply: [
+                                                                    "$$i",
+                                                                    { $subtract: ["$total", 1] }, // (n-1)
+                                                                ],
+                                                            },
+                                                            L - 1, // (L-1), ex: 4
+                                                        ],
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        acq_id: "$_id",
+                        docs: "$sampledDocs",
+                    },
+                },
             ];
             console.log("[SearchBigService] aggregateRaw pipeline (passo 2, links por página):", JSON.stringify(pipelineLinks));
             let rawLinks = [];
@@ -490,44 +526,33 @@ class SearchBigService {
                 // Em caso de erro, segue sem links (melhor do que quebrar a busca)
                 rawLinks = [];
             }
-            // Agrupa por acq_id em memória
-            const groupedLinks = new Map();
-            for (const doc of rawLinks) {
-                const acqIdRaw = doc.acq_id;
+            const items = [];
+            // Converte o retorno agrupado em items (acq_id/sec/link),
+            // garantindo no máximo 1 link por segundo.
+            for (const group of rawLinks) {
+                const acqIdRaw = group.acq_id;
                 const acqId = typeof acqIdRaw === "number" ? acqIdRaw : Number(acqIdRaw !== null && acqIdRaw !== void 0 ? acqIdRaw : NaN);
                 if (!Number.isFinite(acqId))
                     continue;
-                const sec = doc.sec;
-                const link = doc.link;
-                if (typeof sec !== "number")
+                const docs = group.docs;
+                if (!Array.isArray(docs))
                     continue;
-                if (typeof link !== "string" || !link)
-                    continue;
-                if (!groupedLinks.has(acqId)) {
-                    groupedLinks.set(acqId, []);
-                }
-                groupedLinks.get(acqId).push({ sec, link });
-            }
-            const items = [];
-            // Para cada aquisição, escolhe até MAX_SECS_WITH_LINKS_PER_ACQ
-            // segundos bem distribuídos ao longo da timeline.
-            for (const [acqId, docs] of groupedLinks.entries()) {
-                // Ordena por sec
-                docs.sort((a, b) => a.sec - b.sec);
-                const secs = docs.map((d) => d.sec);
-                const chosenSecs = new Set(pickRepresentativeSeconds(secs, MAX_SECS_WITH_LINKS_PER_ACQ));
                 const usedSecs = new Set();
                 for (const d of docs) {
-                    if (!chosenSecs.has(d.sec))
+                    const sec = d.sec;
+                    const link = d.link;
+                    if (typeof sec !== "number")
                         continue;
-                    if (usedSecs.has(d.sec))
-                        continue; // garante 1 link por segundo
+                    if (typeof link !== "string" || !link)
+                        continue;
+                    if (usedSecs.has(sec))
+                        continue;
                     items.push({
                         acq_id: acqId,
-                        sec: d.sec,
-                        link: d.link,
+                        sec,
+                        link,
                     });
-                    usedSecs.add(d.sec);
+                    usedSecs.add(sec);
                 }
             }
             console.log("[SearchBigService] total items (acq_id/sec com link) devolvidos na página:", items.length);
