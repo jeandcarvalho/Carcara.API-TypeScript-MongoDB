@@ -363,6 +363,7 @@ class SearchAcquisitionService {
       {
         $project: {
           acq_id: 1,
+          acq_id_raw: 1,
           sec: 1,
         },
       },
@@ -378,20 +379,25 @@ class SearchAcquisitionService {
       throw err;
     }
 
-    // 2) Pega todos os seconds que batem
+    // 2) Pega todos os seconds que batem (mesmo comportamento que antes)
     const secSet = new Set<number>();
+    const acqIdRawSet = new Set<string>();
 
     for (const doc of rawDocs) {
       if (doc.sec != null) {
         secSet.add(doc.sec);
+      }
+      if (typeof doc.acq_id_raw === "string" && doc.acq_id_raw.trim()) {
+        acqIdRawSet.add(doc.acq_id_raw.trim());
       }
     }
 
     const seconds = Array.from(secSet).sort((a, b) => a - b);
 
     // 3) Busca links na coleção `links` para esse acq_id
-    // Se o campo links.acq_id for BigInt no Prisma, use BigInt(acqIdStr) aqui.
-    const acqIdForLinks: any = acqIdNum; // ajuste para BigInt se necessário
+    // Aqui usamos apenas o ID numérico passado (mesmo padrão do big_1hz).
+    // Se o campo links.acq_id for BigInt no Prisma, troque para BigInt(acqIdStr).
+    const acqIdForLinks: any = acqIdNum;
 
     const OR: any[] = [{ sec: null }];
     if (seconds.length > 0) {
