@@ -182,4 +182,10 @@ model CollectionItem {
 }
 
 
-
+model Links {
+  id     String  @id @default(auto()) @map("_id") @db.ObjectId
+  acq_id String
+  sec    Int?    // null = file for whole acquisition
+  ext    String  // "avi", "csv", "mf4", "blf", "jpg", etc.
+  link   String
+}

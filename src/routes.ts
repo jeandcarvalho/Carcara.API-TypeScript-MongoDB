@@ -11,6 +11,8 @@ import { ListFilesController } from "./controllers/ListFilesController";
 import { HomeController } from "./controllers/HomeController";
 import { ListCounterController } from "./controllers/ListCounterController";
 import { SearchBigController } from "./controllers/SearchBigController";
+import { SearchAcquisitionController } from "./controllers/SearchAcquisitionController";
+
 
 // Controllers de autenticação
 import { RegisterUserController } from "./controllers/RegisterUserController";
@@ -92,6 +94,15 @@ export async function routes(
       return new SearchBigController().handle(request, reply);
     }
   );
+
+    // 🔍 Nova rota: segundos + links para UMA aquisição específica
+  fastify.get(
+    "/api/acquisition",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      return new SearchAcquisitionController().handle(request, reply);
+    },
+  );
+
 
     // === User Collections (protected) ===
   fastify.get(
