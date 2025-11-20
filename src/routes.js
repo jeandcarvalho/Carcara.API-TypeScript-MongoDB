@@ -15,6 +15,7 @@ const ListFilesController_1 = require("./controllers/ListFilesController");
 const HomeController_1 = require("./controllers/HomeController");
 const ListCounterController_1 = require("./controllers/ListCounterController");
 const SearchBigController_1 = require("./controllers/SearchBigController");
+const SearchAcquisitionController_1 = require("./controllers/SearchAcquisitionController");
 // Controllers de autenticação
 const RegisterUserController_1 = require("./controllers/RegisterUserController");
 const LoginUserController_1 = require("./controllers/LoginUserController");
@@ -59,6 +60,10 @@ function routes(fastify, options) {
         // 🔍 nova rota de busca CarCará usando big_1hz
         fastify.get("/api/search", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new SearchBigController_1.SearchBigController().handle(request, reply);
+        }));
+        // 🔍 Nova rota: segundos + links para UMA aquisição específica
+        fastify.get("/api/acquisition", (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new SearchAcquisitionController_1.SearchAcquisitionController().handle(request, reply);
         }));
         // === User Collections (protected) ===
         fastify.get("/collections", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
