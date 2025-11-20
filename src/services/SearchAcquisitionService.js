@@ -291,6 +291,22 @@ function buildMongoMatch(q) {
         return and[0];
     return { $and: and };
 }
+/**
+ * Converte "20240103201734" -> "Recorder_2024-01-03_20-17-34"
+ * Caso o formato não seja 14 dígitos, retorna null.
+ */
+function numericAcqIdToRaw(acqIdStr) {
+    const s = acqIdStr.trim();
+    if (!/^[0-9]{14}$/.test(s))
+        return null;
+    const year = s.substring(0, 4);
+    const month = s.substring(4, 6);
+    const day = s.substring(6, 8);
+    const hour = s.substring(8, 10);
+    const min = s.substring(10, 12);
+    const sec = s.substring(12, 14);
+    return `Recorder_${year}-${month}-${day}_${hour}-${min}-${sec}`;
+}
 /* ================= Service ================= */
 class SearchAcquisitionService {
     execute(rawQuery) {
@@ -334,7 +350,7 @@ class SearchAcquisitionService {
                 console.error("[SearchAcquisitionService] aggregateRaw ERROR:", err);
                 throw err;
             }
-            // 2) Pega todos os seconds que batem (mesmo comportamento que antes)
+            // 2) Pega todos os seconds que batem + possíveis acq_id_raw
             const secSet = new Set();
             const acqIdRawSet = new Set();
             for (const doc of rawDocs) {
@@ -346,33 +362,46 @@ class SearchAcquisitionService {
                 }
             }
             const seconds = Array.from(secSet).sort((a, b) => a - b);
-            // 3) Busca links na coleção `links` para esse acq_id
-            // Aqui usamos apenas o ID numérico passado (mesmo padrão do big_1hz).
-            // Se o campo links.acq_id for BigInt no Prisma, troque para BigInt(acqIdStr).
-            const acqIdForLinks = acqIdNum;
-            const OR = [{ sec: null }];
-            if (seconds.length > 0) {
-                OR.push({ sec: { in: seconds } });
+            // 3) Monta candidatos de acq_id para a coleção Links (string, ex: "Recorder_2024-01-03_20-17-34")
+            const linkAcqIds = new Set();
+            // a) todos os acq_id_raw vindo do big_1hz
+            for (const v of acqIdRawSet) {
+                linkAcqIds.add(v);
             }
-            const docs = yield prisma_1.default.links.findMany({
-                where: {
-                    acq_id: acqIdForLinks,
-                    OR,
-                },
-                select: {
-                    ext: true,
-                    link: true,
-                    sec: true,
-                },
-            });
-            const linksDocs = docs.map((d) => {
-                var _a;
-                return ({
-                    ext: d.ext.toLowerCase(),
-                    link: d.link,
-                    sec: (_a = d.sec) !== null && _a !== void 0 ? _a : null,
+            // b) se por algum motivo não veio acq_id_raw, tenta converter o numérico
+            if (linkAcqIds.size === 0) {
+                const converted = numericAcqIdToRaw(acqIdStr);
+                if (converted) {
+                    linkAcqIds.add(converted);
+                }
+            }
+            let linksDocs = [];
+            if (linkAcqIds.size > 0) {
+                const linkAcqIdsArr = Array.from(linkAcqIds);
+                const OR = [{ sec: null }];
+                if (seconds.length > 0) {
+                    OR.push({ sec: { in: seconds } });
+                }
+                const docs = yield prisma_1.default.links.findMany({
+                    where: {
+                        acq_id: { in: linkAcqIdsArr },
+                        OR,
+                    },
+                    select: {
+                        ext: true,
+                        link: true,
+                        sec: true,
+                    },
                 });
-            });
+                linksDocs = docs.map((d) => {
+                    var _a;
+                    return ({
+                        ext: d.ext.toLowerCase(),
+                        link: d.link,
+                        sec: (_a = d.sec) !== null && _a !== void 0 ? _a : null,
+                    });
+                });
+            }
             return {
                 acq_id: acqIdStr,
                 seconds,
