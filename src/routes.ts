@@ -5,21 +5,64 @@ import {
   FastifyRequest,
   FastifyReply,
 } from "fastify";
+
+// Controllers existentes
 import { ListFilesController } from "./controllers/ListFilesController";
 import { HomeController } from "./controllers/HomeController";
 import { ListCounterController } from "./controllers/ListCounterController";
-import { SearchBigController } from "./controllers/SearchBigController"; // ⬅️ novo
+import { SearchBigController } from "./controllers/SearchBigController";
+
+// Controllers de autenticação
+import { RegisterUserController } from "./controllers/RegisterUserController";
+import { LoginUserController } from "./controllers/LoginUserController";
+import { MeController } from "./controllers/MeController";
+
+// Middleware de autenticação
+import { ensureAuthenticated } from "./middlewares/ensureAuthenticated";
 
 export async function routes(
   fastify: FastifyInstance,
   options: FastifyPluginOptions,
 ) {
+  /* ===============================
+       AUTH - Registro/Login
+  =============================== */
+
+  // Registrar usuário
+  fastify.post(
+    "/auth/register",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      return new RegisterUserController().handle(request, reply);
+    }
+  );
+
+  // Login de usuário
+  fastify.post(
+    "/auth/login",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      return new LoginUserController().handle(request, reply);
+    }
+  );
+
+  // Retorna informações do usuário logado
+  fastify.get(
+    "/auth/me",
+    { preHandler: [ensureAuthenticated] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      return new MeController().handle(request, reply);
+    }
+  );
+
+  /* ===============================
+         ROTAS EXISTENTES
+  =============================== */
+
   // rota de listagem de arquivos
   fastify.get(
     "/videofiles",
     async (request: FastifyRequest, reply: FastifyReply) => {
       return new ListFilesController().handle(request, reply);
-    },
+    }
   );
 
   // contador principal (POST)
@@ -27,7 +70,7 @@ export async function routes(
     "/homecounter",
     async (request: FastifyRequest, reply: FastifyReply) => {
       return new HomeController().handle(request, reply);
-    },
+    }
   );
 
   // contador (GET)
@@ -35,7 +78,7 @@ export async function routes(
     "/counter",
     async (request: FastifyRequest, reply: FastifyReply) => {
       return new ListCounterController().handle(request, reply);
-    },
+    }
   );
 
   // 🔍 nova rota de busca CarCará usando big_1hz
@@ -43,6 +86,6 @@ export async function routes(
     "/api/search",
     async (request: FastifyRequest, reply: FastifyReply) => {
       return new SearchBigController().handle(request, reply);
-    },
+    }
   );
 }
