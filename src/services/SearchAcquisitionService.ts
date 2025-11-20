@@ -363,7 +363,6 @@ class SearchAcquisitionService {
       {
         $project: {
           acq_id: 1,
-          acq_id_raw: 1,
           sec: 1,
         },
       },
@@ -379,54 +378,43 @@ class SearchAcquisitionService {
       throw err;
     }
 
-    // 2) Pega todos os seconds que batem + possíveis acq_id_raw
+    // 2) Pega todos os seconds que batem
     const secSet = new Set<number>();
-    const acqIdRawSet = new Set<string>();
 
     for (const doc of rawDocs) {
       if (doc.sec != null) {
         secSet.add(doc.sec);
       }
-      if (typeof doc.acq_id_raw === "string" && doc.acq_id_raw.trim()) {
-        acqIdRawSet.add(doc.acq_id_raw.trim());
-      }
     }
 
     const seconds = Array.from(secSet).sort((a, b) => a - b);
 
-    // 3) Monta candidatos de acq_id para a coleção Links
-    const linkAcqIds = new Set<string>();
-    for (const v of acqIdRawSet) linkAcqIds.add(v);
-    // também tenta com o próprio acqId numérico em string (caso você tenha links assim)
-    linkAcqIds.add(acqIdStr);
+    // 3) Busca links na coleção `links` para esse acq_id
+    // Se o campo links.acq_id for BigInt no Prisma, use BigInt(acqIdStr) aqui.
+    const acqIdForLinks: any = acqIdNum; // ajuste para BigInt se necessário
 
-    const linkAcqIdsArr = Array.from(linkAcqIds);
-    let linksDocs: AcquisitionLink[] = [];
-
-    if (linkAcqIdsArr.length > 0) {
-      const OR: any[] = [{ sec: null }];
-      if (seconds.length > 0) {
-        OR.push({ sec: { in: seconds } });
-      }
-
-      const docs = await prismaClient.links.findMany({
-        where: {
-          acq_id: { in: linkAcqIdsArr },
-          OR,
-        },
-        select: {
-          ext: true,
-          link: true,
-          sec: true,
-        },
-      });
-
-      linksDocs = docs.map((d) => ({
-        ext: d.ext.toLowerCase(),
-        link: d.link,
-        sec: d.sec ?? null,
-      }));
+    const OR: any[] = [{ sec: null }];
+    if (seconds.length > 0) {
+      OR.push({ sec: { in: seconds } });
     }
+
+    const docs = await prismaClient.links.findMany({
+      where: {
+        acq_id: acqIdForLinks,
+        OR,
+      },
+      select: {
+        ext: true,
+        link: true,
+        sec: true,
+      },
+    });
+
+    const linksDocs: AcquisitionLink[] = docs.map((d) => ({
+      ext: d.ext.toLowerCase(),
+      link: d.link,
+      sec: d.sec ?? null,
+    }));
 
     return {
       acq_id: acqIdStr,
