@@ -21,6 +21,9 @@ const LoginUserController_1 = require("./controllers/LoginUserController");
 const MeController_1 = require("./controllers/MeController");
 // Middleware de autenticação
 const ensureAuthenticated_1 = require("./middlewares/ensureAuthenticated");
+const ListCollectionsController_1 = require("./controllers/ListCollectionsController");
+const CreateCollectionController_1 = require("./controllers/CreateCollectionController");
+const DeleteCollectionController_1 = require("./controllers/DeleteCollectionController");
 function routes(fastify, options) {
     return __awaiter(this, void 0, void 0, function* () {
         /* ===============================
@@ -56,6 +59,16 @@ function routes(fastify, options) {
         // 🔍 nova rota de busca CarCará usando big_1hz
         fastify.get("/api/search", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new SearchBigController_1.SearchBigController().handle(request, reply);
+        }));
+        // === User Collections (protected) ===
+        fastify.get("/collections", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new ListCollectionsController_1.ListCollectionsController().handle(request, reply);
+        }));
+        fastify.post("/collections", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new CreateCollectionController_1.CreateCollectionController().handle(request, reply);
+        }));
+        fastify.delete("/collections/:id", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new DeleteCollectionController_1.DeleteCollectionController().handle(request, reply);
         }));
     });
 }

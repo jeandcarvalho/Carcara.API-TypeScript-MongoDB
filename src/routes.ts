@@ -19,6 +19,10 @@ import { MeController } from "./controllers/MeController";
 
 // Middleware de autenticação
 import { ensureAuthenticated } from "./middlewares/ensureAuthenticated";
+import { ListCollectionsController } from "./controllers/ListCollectionsController";
+import { CreateCollectionController } from "./controllers/CreateCollectionController";
+import { DeleteCollectionController } from "./controllers/DeleteCollectionController";
+
 
 export async function routes(
   fastify: FastifyInstance,
@@ -88,4 +92,30 @@ export async function routes(
       return new SearchBigController().handle(request, reply);
     }
   );
+
+    // === User Collections (protected) ===
+  fastify.get(
+    "/collections",
+    { preHandler: [ensureAuthenticated] },
+    async (request, reply) => {
+      return new ListCollectionsController().handle(request, reply);
+    }
+  );
+
+  fastify.post(
+    "/collections",
+    { preHandler: [ensureAuthenticated] },
+    async (request, reply) => {
+      return new CreateCollectionController().handle(request, reply);
+    }
+  );
+
+  fastify.delete(
+    "/collections/:id",
+    { preHandler: [ensureAuthenticated] },
+    async (request, reply) => {
+      return new DeleteCollectionController().handle(request, reply);
+    }
+  );
+
 }
