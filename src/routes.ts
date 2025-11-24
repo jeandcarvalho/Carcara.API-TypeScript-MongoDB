@@ -12,6 +12,7 @@ import { HomeController } from "./controllers/HomeController";
 import { ListCounterController } from "./controllers/ListCounterController";
 import { SearchBigController } from "./controllers/SearchBigController";
 import { SearchAcquisitionController } from "./controllers/SearchAcquisitionController";
+import { SearchAcqIdsController } from "./controllers/SearchAcqIdsController";
 
 
 // Controllers de autenticação
@@ -102,6 +103,15 @@ export async function routes(
       return new SearchAcquisitionController().handle(request, reply);
     },
   );
+
+  // 🔍 Nova rota: lista apenas os acq_id que batem com os filtros
+  fastify.get(
+    "/api/search-acq-ids",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      return new SearchAcqIdsController().handle(request, reply);
+    },
+  );
+
 
 
     // === User Collections (protected) ===

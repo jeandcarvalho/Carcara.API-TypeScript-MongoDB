@@ -16,6 +16,7 @@ const HomeController_1 = require("./controllers/HomeController");
 const ListCounterController_1 = require("./controllers/ListCounterController");
 const SearchBigController_1 = require("./controllers/SearchBigController");
 const SearchAcquisitionController_1 = require("./controllers/SearchAcquisitionController");
+const SearchAcqIdsController_1 = require("./controllers/SearchAcqIdsController");
 // Controllers de autenticação
 const RegisterUserController_1 = require("./controllers/RegisterUserController");
 const LoginUserController_1 = require("./controllers/LoginUserController");
@@ -64,6 +65,10 @@ function routes(fastify, options) {
         // 🔍 Nova rota: segundos + links para UMA aquisição específica
         fastify.get("/api/acquisition", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new SearchAcquisitionController_1.SearchAcquisitionController().handle(request, reply);
+        }));
+        // 🔍 Nova rota: lista apenas os acq_id que batem com os filtros
+        fastify.get("/api/search-acq-ids", (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new SearchAcqIdsController_1.SearchAcqIdsController().handle(request, reply);
         }));
         // === User Collections (protected) ===
         fastify.get("/collections", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {

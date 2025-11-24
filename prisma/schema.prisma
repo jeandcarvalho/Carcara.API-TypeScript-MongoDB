@@ -192,3 +192,10 @@ model Links {
   @@map("links")   // 👈 garante que o Prisma use a coleção "links"
 }
 
+model Links {
+  ...
+  @@map("links")
+  @@index([acq_id, sec])
+}
+
+
