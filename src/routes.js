@@ -10,6 +10,10 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routes = void 0;
+// Controllers de items da coleção (funções)
+const get_collection_items_by_acq_1 = require("./controllers/collections/get-collection-items-by-acq");
+const add_items_to_collection_1 = require("./controllers/collections/add-items-to-collection");
+const remove_items_from_collection_1 = require("./controllers/collections/remove-items-from-collection");
 // Controllers existentes
 const ListFilesController_1 = require("./controllers/ListFilesController");
 const HomeController_1 = require("./controllers/HomeController");
@@ -23,6 +27,7 @@ const LoginUserController_1 = require("./controllers/LoginUserController");
 const MeController_1 = require("./controllers/MeController");
 // Middleware de autenticação
 const ensureAuthenticated_1 = require("./middlewares/ensureAuthenticated");
+// Controllers de coleções (já existentes)
 const ListCollectionsController_1 = require("./controllers/ListCollectionsController");
 const CreateCollectionController_1 = require("./controllers/CreateCollectionController");
 const DeleteCollectionController_1 = require("./controllers/DeleteCollectionController");
@@ -31,54 +36,65 @@ function routes(fastify, options) {
         /* ===============================
              AUTH - Registro/Login
         =============================== */
-        // Registrar usuário
         fastify.post("/auth/register", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new RegisterUserController_1.RegisterUserController().handle(request, reply);
         }));
-        // Login de usuário
         fastify.post("/auth/login", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new LoginUserController_1.LoginUserController().handle(request, reply);
         }));
-        // Retorna informações do usuário logado
         fastify.get("/auth/me", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new MeController_1.MeController().handle(request, reply);
         }));
         /* ===============================
                ROTAS EXISTENTES
         =============================== */
-        // rota de listagem de arquivos
         fastify.get("/videofiles", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListFilesController_1.ListFilesController().handle(request, reply);
         }));
-        // contador principal (POST)
         fastify.post("/homecounter", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new HomeController_1.HomeController().handle(request, reply);
         }));
-        // contador (GET)
         fastify.get("/counter", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListCounterController_1.ListCounterController().handle(request, reply);
         }));
-        // 🔍 nova rota de busca CarCará usando big_1hz
         fastify.get("/api/search", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new SearchBigController_1.SearchBigController().handle(request, reply);
         }));
-        // 🔍 Nova rota: segundos + links para UMA aquisição específica
         fastify.get("/api/acquisition", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new SearchAcquisitionController_1.SearchAcquisitionController().handle(request, reply);
         }));
-        // 🔍 Nova rota: lista apenas os acq_id que batem com os filtros
         fastify.get("/api/search-acq-ids", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new SearchAcqIdsController_1.SearchAcqIdsController().handle(request, reply);
         }));
-        // === User Collections (protected) ===
+        /* ===============================
+               COLEÇÕES DO USUÁRIO
+        =============================== */
+        // Listar coleções do usuário
         fastify.get("/collections", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListCollectionsController_1.ListCollectionsController().handle(request, reply);
         }));
+        // Criar nova coleção
         fastify.post("/collections", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new CreateCollectionController_1.CreateCollectionController().handle(request, reply);
         }));
+        // Deletar coleção
         fastify.delete("/collections/:id", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new DeleteCollectionController_1.DeleteCollectionController().handle(request, reply);
+        }));
+        /* ===============================
+             ITEMS DA COLEÇÃO (acq_id + sec)
+        =============================== */
+        // Buscar secs de uma acq_id dentro de uma coleção
+        fastify.get("/collections/:collectionId/items", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new get_collection_items_by_acq_1.GetCollectionItemsByAcqController().handle(request, reply);
+        }));
+        // Adicionar momentos na coleção
+        fastify.post("/collections/:collectionId/items/add", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new add_items_to_collection_1.AddItemsToCollectionController().handle(request, reply);
+        }));
+        // Remover momentos da coleção
+        fastify.post("/collections/:collectionId/items/remove", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new remove_items_from_collection_1.RemoveItemsFromCollectionController().handle(request, reply);
         }));
     });
 }
