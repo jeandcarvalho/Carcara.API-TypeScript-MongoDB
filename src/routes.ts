@@ -140,7 +140,7 @@ export async function routes(
     }
   );
 
-  fastify.get(
+fastify.get(
   "/collections/:collectionId/seconds-with-links",
   { preHandler: [ensureAuthenticated] },
   async (request: FastifyRequest, reply: FastifyReply) => {

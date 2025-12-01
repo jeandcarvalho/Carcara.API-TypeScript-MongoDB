@@ -8,11 +8,27 @@ type GetCollectionSecondsWithLinksParams = {
 
 export class GetCollectionSecondsWithLinksController {
   async handle(request: FastifyRequest, reply: FastifyReply) {
-    const userId = (request as any).user_id as string;
+    const anyReq = request as any;
 
-    const { collectionId } = request.params as GetCollectionSecondsWithLinksParams;
+    // Tenta vários lugares comuns onde o middleware pode ter colocado o id
+    const userId: string | undefined =
+      anyReq.user_id ??
+      anyReq.userId ??
+      anyReq.user?.id ??
+      anyReq.user?._id;
+
+    const { collectionId } =
+      request.params as GetCollectionSecondsWithLinksParams;
 
     if (!userId) {
+      // LOG pra você ver nos logs da Render o que está chegando
+      console.log("[seconds-with-links] missing userId", {
+        authHeader: request.headers.authorization,
+        user_id: anyReq.user_id,
+        userId: anyReq.userId,
+        user: anyReq.user,
+      });
+
       return reply.status(401).send({ error: "UNAUTHORIZED" });
     }
 
