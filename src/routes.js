@@ -14,6 +14,7 @@ exports.routes = void 0;
 const get_collection_items_by_acq_1 = require("./controllers/collections/get-collection-items-by-acq");
 const add_items_to_collection_1 = require("./controllers/collections/add-items-to-collection");
 const remove_items_from_collection_1 = require("./controllers/collections/remove-items-from-collection");
+const getCollectionSecondsWithLinksController_1 = require("./controllers/getCollectionSecondsWithLinksController");
 // Controllers existentes
 const ListFilesController_1 = require("./controllers/ListFilesController");
 const HomeController_1 = require("./controllers/HomeController");
@@ -80,6 +81,9 @@ function routes(fastify, options) {
         // Deletar coleção
         fastify.delete("/collections/:id", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new DeleteCollectionController_1.DeleteCollectionController().handle(request, reply);
+        }));
+        fastify.get("/collections/:collectionId/seconds-with-links", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new getCollectionSecondsWithLinksController_1.GetCollectionSecondsWithLinksController().handle(request, reply);
         }));
         /* ===============================
              ITEMS DA COLEÇÃO (acq_id + sec)

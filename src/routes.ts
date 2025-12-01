@@ -10,6 +10,7 @@ import {
 import { GetCollectionItemsByAcqController } from "./controllers/collections/get-collection-items-by-acq";
 import { AddItemsToCollectionController } from "./controllers/collections/add-items-to-collection";
 import { RemoveItemsFromCollectionController } from "./controllers/collections/remove-items-from-collection";
+import { GetCollectionSecondsWithLinksController } from "./controllers/getCollectionSecondsWithLinksController";
 
 // Controllers existentes
 import { ListFilesController } from "./controllers/ListFilesController";
@@ -138,6 +139,15 @@ export async function routes(
       return new DeleteCollectionController().handle(request, reply);
     }
   );
+
+  fastify.get(
+  "/collections/:collectionId/seconds-with-links",
+  { preHandler: [ensureAuthenticated] },
+  async (request: FastifyRequest, reply: FastifyReply) => {
+    return new GetCollectionSecondsWithLinksController().handle(request, reply);
+  }
+);
+
 
   /* ===============================
        ITEMS DA COLEÇÃO (acq_id + sec)
