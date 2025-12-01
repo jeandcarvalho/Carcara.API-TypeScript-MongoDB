@@ -153,14 +153,14 @@ export async function routes(
        ITEMS DA COLEÇÃO (acq_id + sec)
   =============================== */
 
-  // Buscar secs de uma acq_id dentro de uma coleção
-  fastify.get(
-    "/collections/:collectionId/items",
-    { preHandler: [ensureAuthenticated] },
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      return new GetCollectionItemsByAcqController().handle(request, reply);
-    }
-  );
+// Buscar todos os seconds + links (images/files) de uma coleção
+fastify.get(
+  "/collections/:collectionId/seconds-with-links",
+  { preHandler: [ensureAuthenticated] },
+  async (request: FastifyRequest, reply: FastifyReply) => {
+    return new GetCollectionSecondsWithLinksController().handle(request, reply);
+  }
+);
 
   // Adicionar momentos na coleção
   fastify.post(

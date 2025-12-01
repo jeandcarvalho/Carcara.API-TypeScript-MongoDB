@@ -10,8 +10,6 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routes = void 0;
-// Controllers de items da coleção (funções)
-const get_collection_items_by_acq_1 = require("./controllers/collections/get-collection-items-by-acq");
 const add_items_to_collection_1 = require("./controllers/collections/add-items-to-collection");
 const remove_items_from_collection_1 = require("./controllers/collections/remove-items-from-collection");
 const getCollectionSecondsWithLinksController_1 = require("./controllers/getCollectionSecondsWithLinksController");
@@ -88,9 +86,9 @@ function routes(fastify, options) {
         /* ===============================
              ITEMS DA COLEÇÃO (acq_id + sec)
         =============================== */
-        // Buscar secs de uma acq_id dentro de uma coleção
-        fastify.get("/collections/:collectionId/items", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
-            return new get_collection_items_by_acq_1.GetCollectionItemsByAcqController().handle(request, reply);
+        // Buscar todos os seconds + links (images/files) de uma coleção
+        fastify.get("/collections/:collectionId/seconds-with-links", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new getCollectionSecondsWithLinksController_1.GetCollectionSecondsWithLinksController().handle(request, reply);
         }));
         // Adicionar momentos na coleção
         fastify.post("/collections/:collectionId/items/add", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
