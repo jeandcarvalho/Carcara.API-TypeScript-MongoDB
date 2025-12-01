@@ -1,5 +1,4 @@
 "use strict";
-// src/services/GetCollectionSecondsWithLinksService.ts
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -15,14 +14,23 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getCollectionSecondsWithLinksService = void 0;
 const prisma_1 = __importDefault(require("../prisma"));
-// Extensões consideradas imagens — precisam bater com acq_id + sec
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
+/**
+ * Retorna, para uma coleção de um usuário, todos os (acq_id, sec) existentes
+ * e anexa os links correspondentes da collection `links`:
+ *
+ * - images: apenas extensões de imagem (jpg/png/webp/gif) com sec definido.
+ * - files: demais extensões (csv/mf4/blf/avi/etc.), agregadas por acq_id.
+ */
 function getCollectionSecondsWithLinksService(userId, collectionId) {
-    var _a, _b, _c, _d;
+    var _a;
     return __awaiter(this, void 0, void 0, function* () {
-        // 1. Verificar se a coleção existe e pertence ao usuário
+        // 1) Validar se a coleção existe e pertence ao usuário
         const collection = yield prisma_1.default.collection.findFirst({
-            where: { id: collectionId, userId },
+            where: {
+                id: collectionId,
+                userId,
+            },
             select: {
                 id: true,
                 name: true,
@@ -32,9 +40,11 @@ function getCollectionSecondsWithLinksService(userId, collectionId) {
         if (!collection) {
             return null;
         }
-        // 2. Buscar todos os items (acq_id + sec) da coleção
+        // 2) Buscar todos os items da coleção (acq_id + sec)
         const rawItems = yield prisma_1.default.collectionItem.findMany({
-            where: { collectionId },
+            where: {
+                collectionId: collectionId,
+            },
             select: {
                 acq_id: true,
                 sec: true,
@@ -48,7 +58,7 @@ function getCollectionSecondsWithLinksService(userId, collectionId) {
                 items: [],
             };
         }
-        // 3. Agrupar segundos por acq_id
+        // 3) Agrupar segundos por acq_id
         const secsByAcq = new Map();
         for (const item of rawItems) {
             const acqId = item.acq_id;
@@ -59,7 +69,8 @@ function getCollectionSecondsWithLinksService(userId, collectionId) {
             secsByAcq.get(acqId).add(sec);
         }
         const acqIds = Array.from(secsByAcq.keys());
-        // 4. Buscar todos os links no Mongo (coleção "links")
+        // 4) Buscar todos os links correspondentes a esses acq_id na collection `links`
+        //    (vai trazer imagens e arquivos em geral)
         const linksDocs = yield prisma_1.default.links.findMany({
             where: {
                 acq_id: { in: acqIds },
@@ -71,63 +82,65 @@ function getCollectionSecondsWithLinksService(userId, collectionId) {
                 link: true,
             },
         });
-        // 5. Organizar links em:
-        //    imagesByAcq: imagens (precisam bater acq_id + sec)
-        //    filesByAcq: outros formatos (avi, csv, mf4, blf...) apenas 1 por ext
+        // 5) Mapear links em dois mapas: imagens e arquivos, indexados por acq_id
         const imagesByAcq = new Map();
         const filesByAcq = new Map();
         for (const doc of linksDocs) {
             const acqId = doc.acq_id;
-            const ext = (doc.ext || "").toLowerCase();
             const sec = (_a = doc.sec) !== null && _a !== void 0 ? _a : null;
+            // Normaliza extensão: lowercase e sem ponto
+            const rawExt = doc.ext || "";
+            const normalizedExt = rawExt.toLowerCase().replace(/^\./, "");
+            const baseFile = {
+                ext: normalizedExt,
+                link: doc.link,
+            };
+            // Se for imagem e tiver sec, vai pra lista de imagens
+            if (sec !== null && IMAGE_EXTS.has(normalizedExt)) {
+                if (!imagesByAcq.has(acqId)) {
+                    imagesByAcq.set(acqId, []);
+                }
+                imagesByAcq.get(acqId).push({
+                    sec,
+                    ext: normalizedExt,
+                    link: doc.link,
+                });
+            }
+            else {
+                // Demais arquivos vão para "files" (um conjunto por acq_id)
+                if (!filesByAcq.has(acqId)) {
+                    filesByAcq.set(acqId, []);
+                }
+                // Evita duplicar o mesmo ext+link várias vezes
+                const existing = filesByAcq.get(acqId);
+                const alreadyExists = existing.some((f) => f.ext === baseFile.ext && f.link === baseFile.link);
+                if (!alreadyExists) {
+                    existing.push(baseFile);
+                }
+            }
+        }
+        // 6) Construir o array final de items por acq_id
+        const items = [];
+        // Ordena acq_id para ter uma navegação previsível
+        const sortedAcqIds = Array.from(secsByAcq.keys()).sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+        for (const acqId of sortedAcqIds) {
             const secsSet = secsByAcq.get(acqId);
             if (!secsSet)
                 continue;
-            if (IMAGE_EXTS.has(ext)) {
-                // Imagens precisam bater com sec da coleção
-                if (sec === null)
-                    continue;
-                if (!secsSet.has(sec))
-                    continue;
-                const imagesList = (_b = imagesByAcq.get(acqId)) !== null && _b !== void 0 ? _b : [];
-                imagesList.push({
-                    sec,
-                    ext,
-                    link: doc.link,
-                });
-                imagesByAcq.set(acqId, imagesList);
-            }
-            else {
-                // Arquivos não-imagem: um por extensão por acq_id
-                let filesList = filesByAcq.get(acqId);
-                if (!filesList) {
-                    filesList = [];
-                    filesByAcq.set(acqId, filesList);
-                }
-                const exists = filesList.some((f) => f.ext === ext);
-                if (!exists) {
-                    filesList.push({
-                        ext,
-                        link: doc.link,
-                    });
-                }
-            }
-        }
-        // 6. Montar resposta final no formato esperado
-        const items = [];
-        for (const [acqId, secsSet] of secsByAcq.entries()) {
-            const secs = Array.from(secsSet).sort((a, b) => a - b);
-            const images = (_c = imagesByAcq.get(acqId)) !== null && _c !== void 0 ? _c : [];
-            const files = (_d = filesByAcq.get(acqId)) !== null && _d !== void 0 ? _d : [];
+            const secsArray = Array.from(secsSet).sort((a, b) => a - b);
+            // Filtra imagens somente para os secs que estão na coleção
+            const allImages = imagesByAcq.get(acqId) || [];
+            const filteredImages = allImages
+                .filter((img) => secsSet.has(img.sec))
+                .sort((a, b) => a.sec - b.sec);
+            const files = filesByAcq.get(acqId) || [];
             items.push({
                 acq_id: acqId,
-                secs,
-                images,
+                secs: secsArray,
+                images: filteredImages,
                 files,
             });
         }
-        // Ordena por acq_id para consistência
-        items.sort((a, b) => (a.acq_id < b.acq_id ? -1 : a.acq_id > b.acq_id ? 1 : 0));
         return {
             collectionId: collection.id,
             name: collection.name,
