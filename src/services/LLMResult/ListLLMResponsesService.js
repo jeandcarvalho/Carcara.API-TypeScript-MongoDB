@@ -13,7 +13,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ListLLMResponsesService = void 0;
-// src/services/LLMResult/ListLLMResponsesService.ts
 const prisma_1 = __importDefault(require("../../prisma"));
 class ListLLMResponsesService {
     execute({ collectionId, testName, llmModel, promptType, }) {
@@ -35,14 +34,15 @@ class ListLLMResponsesService {
                 where,
                 select: {
                     acq_id: true,
-                    sec: true,
+                    sec: true, // se não existir, pode trocar para centerSec
                 },
                 orderBy: [
                     { acq_id: "asc" },
-                    { sec: "asc" }
+                    { sec: "asc" },
                 ],
             });
             console.log("[ListLLMResponsesService] returning docs:", results.length);
+            // já está no formato { acq_id, sec }
             return results;
         });
     }

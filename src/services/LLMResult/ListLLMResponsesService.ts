@@ -1,4 +1,3 @@
-// src/services/LLMResult/ListLLMResponsesService.ts
 import prismaClient from "../../prisma";
 
 type ListLLMResponsesParams = {
@@ -32,11 +31,11 @@ export class ListLLMResponsesService {
       where,
       select: {
         acq_id: true,
-        sec: true,
+        sec: true, // se não existir, pode trocar para centerSec
       },
       orderBy: [
         { acq_id: "asc" },
-        { sec: "asc" }
+        { sec: "asc" },
       ],
     });
 
@@ -45,6 +44,7 @@ export class ListLLMResponsesService {
       results.length
     );
 
+    // já está no formato { acq_id, sec }
     return results;
   }
 }

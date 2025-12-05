@@ -15,7 +15,6 @@ class ListLLMResponsesController {
     handle(request, reply) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                // auth padrão da tua API
                 const user = request.user;
                 if (!user) {
                     return reply.status(401).send({ error: "UNAUTHORIZED" });
@@ -32,10 +31,8 @@ class ListLLMResponsesController {
                         .status(400)
                         .send({ error: "TEST_NAME_REQUIRED" });
                 }
-                const pageNum = Number.isFinite(Number(page)) && Number(page) > 0
-                    ? Number(page)
-                    : 1;
-                const pageSizeNum = Number.isFinite(Number(pageSize)) && Number(pageSize) > 0
+                const pageNum = Number(page) && Number(page) > 0 ? Number(page) : 1;
+                const pageSizeNum = Number(pageSize) && Number(pageSize) > 0
                     ? Math.min(Number(pageSize), 200)
                     : 20;
                 const service = new ListLLMResponsesService_1.ListLLMResponsesService();
@@ -49,7 +46,6 @@ class ListLLMResponsesController {
                 const start = (pageNum - 1) * pageSizeNum;
                 const end = start + pageSizeNum;
                 const items = allResults.slice(start, end);
-                // items aqui têm só acq_id e sec (como você pediu)
                 return reply.send({
                     items,
                     total,

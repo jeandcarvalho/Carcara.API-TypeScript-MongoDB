@@ -1,4 +1,3 @@
-// src/controllers/LLMResult/ListLLMResponsesController.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { ListLLMResponsesService } from "../../services/LLMResult/ListLLMResponsesService";
 
@@ -17,7 +16,6 @@ type ListLLMResponsesQuery = {
 export class ListLLMResponsesController {
   async handle(request: FastifyRequest, reply: FastifyReply) {
     try {
-      // auth padrão da tua API
       const user = (request as any).user as { id: string } | undefined;
       if (!user) {
         return reply.status(401).send({ error: "UNAUTHORIZED" });
@@ -44,12 +42,11 @@ export class ListLLMResponsesController {
           .send({ error: "TEST_NAME_REQUIRED" });
       }
 
-      const pageNum = Number.isFinite(Number(page)) && Number(page) > 0
-        ? Number(page)
-        : 1;
+      const pageNum =
+        Number(page) && Number(page) > 0 ? Number(page) : 1;
 
       const pageSizeNum =
-        Number.isFinite(Number(pageSize)) && Number(pageSize) > 0
+        Number(pageSize) && Number(pageSize) > 0
           ? Math.min(Number(pageSize), 200)
           : 20;
 
@@ -68,7 +65,6 @@ export class ListLLMResponsesController {
 
       const items = allResults.slice(start, end);
 
-      // items aqui têm só acq_id e sec (como você pediu)
       return reply.send({
         items,
         total,

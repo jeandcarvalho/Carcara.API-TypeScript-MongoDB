@@ -201,7 +201,8 @@ model LLMResult {
   acq_id       String
 
   // se ainda não tiver `sec` nos docs antigos, tudo bem pra leitura
-  sec          Int
+  centerSec Int? @map("center_sec")
+
 
   // mapeia snake_case -> camelCase
   testName     String   @map("test_name")
