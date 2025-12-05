@@ -1,4 +1,4 @@
-// src/services/ListLLMResponsesService.ts
+// src/services/LLMResult/ListLLMResponsesService.ts
 import prismaClient from "../../prisma";
 
 type ListLLMResponsesParams = {
@@ -30,6 +30,8 @@ export class ListLLMResponsesService {
     if (llmModel) where.llmModel = llmModel;
     if (promptType) where.promptType = promptType;
 
+    console.log("[ListLLMResponsesService] where:", where);
+
     const results = await prismaClient.lLMResult.findMany({
       where,
       select: {
@@ -39,6 +41,10 @@ export class ListLLMResponsesService {
         llmModel: true,
         testName: true,
         promptType: true,
+        prompt: true,
+        response: true,
+        totalTokens: true,
+        latencyMs: true,   // 👈 aqui agora é latencyMs
         createdAt: true,
       },
       orderBy: [
@@ -47,6 +53,16 @@ export class ListLLMResponsesService {
       ],
     });
 
-    return results;
+    console.log(
+      "[ListLLMResponsesService] found docs:",
+      results.length
+    );
+
+    // Se o schema tem latencyMs mesmo, não precisa converter nada,
+    // só repassar pro front.
+    return results.map((r) => ({
+      ...r,
+      latencyMs: r.latencyMs ?? null,
+    }));
   }
 }

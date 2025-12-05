@@ -13,7 +13,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DeleteLLMTestService = void 0;
-// src/services/DeleteLLMTestService.ts
+// src/services/LLMResult/DeleteLLMTestService.ts
 const prisma_1 = __importDefault(require("../../prisma"));
 class DeleteLLMTestService {
     execute({ collectionId, testName, llmModel, promptType, }) {
@@ -32,9 +32,11 @@ class DeleteLLMTestService {
                 where.llmModel = llmModel;
             if (promptType)
                 where.promptType = promptType;
+            console.log("[DeleteLLMTestService] delete where:", where);
             const result = yield prisma_1.default.lLMResult.deleteMany({
                 where,
             });
+            console.log("[DeleteLLMTestService] deleted docs count:", result.count);
             return {
                 deletedCount: result.count,
             };

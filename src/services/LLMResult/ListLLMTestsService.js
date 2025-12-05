@@ -13,15 +13,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ListLLMTestsService = void 0;
-// src/services/ListLLMTestsService.ts
-const prisma_1 = __importDefault(require("../../prisma")); // ajusta o path se for diferente
+// src/services/LLMResult/ListLLMTestsService.ts
+const prisma_1 = __importDefault(require("../../prisma"));
 class ListLLMTestsService {
     execute({ collectionId }) {
         return __awaiter(this, void 0, void 0, function* () {
             if (!collectionId) {
                 throw new Error("COLLECTION_ID_REQUIRED");
             }
-            // groupBy por combinação de teste
             const grouped = yield prisma_1.default.lLMResult.groupBy({
                 by: ["testName", "llmModel", "promptType"],
                 where: {
@@ -30,13 +29,14 @@ class ListLLMTestsService {
                 _count: { _all: true },
                 _min: { createdAt: true },
             });
-            // normaliza resposta pro front
+            console.log("[ListLLMTestsService] groupBy result length:", grouped.length);
+            console.log("[ListLLMTestsService] sample:", grouped[0]);
             return grouped.map((g) => ({
                 testName: g.testName,
                 llmModel: g.llmModel,
                 promptType: g.promptType,
-                totalDocs: g._count._all,
-                createdAt: g._min.createdAt,
+                docsCount: g._count._all, // <- nome que o front espera
+                firstCreatedAt: g._min.createdAt,
             }));
         });
     }

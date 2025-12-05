@@ -1,5 +1,5 @@
-// src/services/DeleteLLMTestService.ts
-import prismaClient  from "../../prisma";
+// src/services/LLMResult/DeleteLLMTestService.ts
+import prismaClient from "../../prisma";
 
 type DeleteLLMTestParams = {
   collectionId: string;
@@ -30,9 +30,16 @@ export class DeleteLLMTestService {
     if (llmModel) where.llmModel = llmModel;
     if (promptType) where.promptType = promptType;
 
+    console.log("[DeleteLLMTestService] delete where:", where);
+
     const result = await prismaClient.lLMResult.deleteMany({
       where,
     });
+
+    console.log(
+      "[DeleteLLMTestService] deleted docs count:",
+      result.count
+    );
 
     return {
       deletedCount: result.count,

@@ -195,27 +195,28 @@ model Links {
 model LLMResult {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
 
-  // vínculo com a coleção de highlights/collection
-  collectionId String   @db.ObjectId
+  // aqui é string simples, igual está no banco hoje
+  collectionId String   @map("collectionId")
 
   acq_id       String
+
+  // se ainda não tiver `sec` nos docs antigos, tudo bem pra leitura
   sec          Int
 
-  // identificação do teste LLM
-  testName     String
-  llmModel     String
-  promptType   String
+  // mapeia snake_case -> camelCase
+  testName     String   @map("test_name")
+  llmModel     String   @map("llm_model")
+  promptType   String   @map("prompt_type")
 
-  // extras que você provavelmente já tem / vai ter
-  prompt       String?
-  response     String?
-  promptTokens Int?
-  completionTokens Int?
-  totalTokens  Int?
-  latencyMs    Int?
+  // mapeia prompt/answer e métricas
+  prompt       String?  @map("prompt_text")
+  response     String?  @map("answer")
+  totalTokens  Int?     @map("total_tokens")
+  latencyMs    Int?     @map("response_time_s")
 
   createdAt    DateTime @default(now())
 }
+
 
 
 
