@@ -13,16 +13,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ListLLMResponsesService = void 0;
+// src/services/ListLLMResponsesService.ts
 const prisma_1 = __importDefault(require("../../prisma"));
 class ListLLMResponsesService {
-    execute(userId, collectionId, params) {
+    execute({ collectionId, testName, llmModel, promptType, }) {
         return __awaiter(this, void 0, void 0, function* () {
-            const { testName, llmModel, promptType } = params;
-            const collection = yield prisma_1.default.collection.findFirst({
-                where: { id: collectionId, userId },
-            });
-            if (!collection) {
-                throw new Error("COLLECTION_NOT_FOUND_OR_FORBIDDEN");
+            if (!collectionId) {
+                throw new Error("COLLECTION_ID_REQUIRED");
+            }
+            if (!testName) {
+                throw new Error("TEST_NAME_REQUIRED");
             }
             const where = {
                 collectionId,
@@ -43,7 +43,10 @@ class ListLLMResponsesService {
                     promptType: true,
                     createdAt: true,
                 },
-                orderBy: [{ acq_id: "asc" }, { sec: "asc" }],
+                orderBy: [
+                    { acq_id: "asc" },
+                    { sec: "asc" },
+                ],
             });
             return results;
         });

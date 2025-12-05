@@ -16,24 +16,22 @@ class ListLLMTestsController {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 const user = request.user;
-                if (!user) {
-                    return reply.status(401).send({ error: "Unauthorized." });
-                }
                 const { collectionId } = request.params;
+                if (!user) {
+                    return reply.status(401).send({ error: "UNAUTHORIZED" });
+                }
+                if (!collectionId) {
+                    return reply
+                        .status(400)
+                        .send({ error: "COLLECTION_ID_REQUIRED" });
+                }
                 const service = new ListLLMTestsService_1.ListLLMTestsService();
-                const data = yield service.execute(user.id, collectionId);
-                return reply.status(200).send({ data });
+                const tests = yield service.execute({ collectionId });
+                return reply.send({ data: tests });
             }
             catch (err) {
                 console.error("[ListLLMTestsController] Error:", err);
-                if (err.message === "COLLECTION_NOT_FOUND_OR_FORBIDDEN") {
-                    return reply
-                        .status(404)
-                        .send({ error: "Collection not found or not allowed." });
-                }
-                return reply
-                    .status(500)
-                    .send({ error: "Error listing LLM tests." });
+                return reply.status(500).send({ error: "INTERNAL_SERVER_ERROR" });
             }
         });
     }

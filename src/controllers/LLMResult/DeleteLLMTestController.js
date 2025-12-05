@@ -16,34 +16,33 @@ class DeleteLLMTestController {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 const user = request.user;
-                if (!user) {
-                    return reply.status(401).send({ error: "Unauthorized." });
-                }
                 const { collectionId } = request.params;
                 const { testName, llmModel, promptType } = request.query;
+                if (!user) {
+                    return reply.status(401).send({ error: "UNAUTHORIZED" });
+                }
+                if (!collectionId) {
+                    return reply
+                        .status(400)
+                        .send({ error: "COLLECTION_ID_REQUIRED" });
+                }
                 if (!testName) {
                     return reply
                         .status(400)
-                        .send({ error: "testName is required." });
+                        .send({ error: "TEST_NAME_REQUIRED" });
                 }
                 const service = new DeleteLLMTestService_1.DeleteLLMTestService();
-                const result = yield service.execute(user.id, collectionId, {
+                const result = yield service.execute({
+                    collectionId,
                     testName,
                     llmModel,
                     promptType,
                 });
-                return reply.status(200).send(Object.assign({ success: true }, result));
+                return reply.send(Object.assign({ success: true }, result));
             }
             catch (err) {
                 console.error("[DeleteLLMTestController] Error:", err);
-                if (err.message === "COLLECTION_NOT_FOUND_OR_FORBIDDEN") {
-                    return reply
-                        .status(404)
-                        .send({ error: "Collection not found or not allowed." });
-                }
-                return reply
-                    .status(500)
-                    .send({ error: "Error deleting LLM test." });
+                return reply.status(500).send({ error: "INTERNAL_SERVER_ERROR" });
             }
         });
     }

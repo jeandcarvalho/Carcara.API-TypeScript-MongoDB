@@ -1,34 +1,34 @@
+// src/controllers/ListLLMTestsController.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { ListLLMTestsService } from "../../services/LLMResult/ListLLMTestsService";
 
-class ListLLMTestsController {
+type ListLLMTestsParams = {
+  collectionId: string;
+};
+
+export class ListLLMTestsController {
   async handle(request: FastifyRequest, reply: FastifyReply) {
     try {
       const user = (request as any).user as { id: string } | undefined;
+      const { collectionId } = request.params as ListLLMTestsParams;
+
       if (!user) {
-        return reply.status(401).send({ error: "Unauthorized." });
+        return reply.status(401).send({ error: "UNAUTHORIZED" });
       }
 
-      const { collectionId } = request.params as { collectionId: string };
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send({ error: "COLLECTION_ID_REQUIRED" });
+      }
 
       const service = new ListLLMTestsService();
-      const data = await service.execute(user.id, collectionId);
+      const tests = await service.execute({ collectionId });
 
-      return reply.status(200).send({ data });
+      return reply.send({ data: tests });
     } catch (err: any) {
       console.error("[ListLLMTestsController] Error:", err);
-
-      if (err.message === "COLLECTION_NOT_FOUND_OR_FORBIDDEN") {
-        return reply
-          .status(404)
-          .send({ error: "Collection not found or not allowed." });
-      }
-
-      return reply
-        .status(500)
-        .send({ error: "Error listing LLM tests." });
+      return reply.status(500).send({ error: "INTERNAL_SERVER_ERROR" });
     }
   }
 }
-
-export { ListLLMTestsController };

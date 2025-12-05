@@ -1,49 +1,53 @@
+// src/controllers/DeleteLLMTestController.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { DeleteLLMTestService } from "../../services/LLMResult/DeleteLLMTestService";
 
-class DeleteLLMTestController {
+type DeleteLLMTestParams = {
+  collectionId: string;
+};
+
+type DeleteLLMTestQuery = {
+  testName?: string;
+  llmModel?: string;
+  promptType?: string;
+};
+
+export class DeleteLLMTestController {
   async handle(request: FastifyRequest, reply: FastifyReply) {
     try {
       const user = (request as any).user as { id: string } | undefined;
+      const { collectionId } = request.params as DeleteLLMTestParams;
+      const { testName, llmModel, promptType } =
+        request.query as DeleteLLMTestQuery;
+
       if (!user) {
-        return reply.status(401).send({ error: "Unauthorized." });
+        return reply.status(401).send({ error: "UNAUTHORIZED" });
       }
 
-      const { collectionId } = request.params as { collectionId: string };
-      const { testName, llmModel, promptType } = request.query as {
-        testName?: string;
-        llmModel?: string;
-        promptType?: string;
-      };
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send({ error: "COLLECTION_ID_REQUIRED" });
+      }
 
       if (!testName) {
         return reply
           .status(400)
-          .send({ error: "testName is required." });
+          .send({ error: "TEST_NAME_REQUIRED" });
       }
 
       const service = new DeleteLLMTestService();
-      const result = await service.execute(user.id, collectionId, {
+      const result = await service.execute({
+        collectionId,
         testName,
         llmModel,
         promptType,
       });
 
-      return reply.status(200).send({ success: true, ...result });
+      return reply.send({ success: true, ...result });
     } catch (err: any) {
       console.error("[DeleteLLMTestController] Error:", err);
-
-      if (err.message === "COLLECTION_NOT_FOUND_OR_FORBIDDEN") {
-        return reply
-          .status(404)
-          .send({ error: "Collection not found or not allowed." });
-      }
-
-      return reply
-        .status(500)
-        .send({ error: "Error deleting LLM test." });
+      return reply.status(500).send({ error: "INTERNAL_SERVER_ERROR" });
     }
   }
 }
-
-export { DeleteLLMTestController };

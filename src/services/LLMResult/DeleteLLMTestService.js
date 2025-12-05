@@ -13,16 +13,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DeleteLLMTestService = void 0;
+// src/services/DeleteLLMTestService.ts
 const prisma_1 = __importDefault(require("../../prisma"));
 class DeleteLLMTestService {
-    execute(userId, collectionId, params) {
+    execute({ collectionId, testName, llmModel, promptType, }) {
         return __awaiter(this, void 0, void 0, function* () {
-            const { testName, llmModel, promptType } = params;
-            const collection = yield prisma_1.default.collection.findFirst({
-                where: { id: collectionId, userId },
-            });
-            if (!collection) {
-                throw new Error("COLLECTION_NOT_FOUND_OR_FORBIDDEN");
+            if (!collectionId) {
+                throw new Error("COLLECTION_ID_REQUIRED");
+            }
+            if (!testName) {
+                throw new Error("TEST_NAME_REQUIRED");
             }
             const where = {
                 collectionId,
@@ -32,8 +32,12 @@ class DeleteLLMTestService {
                 where.llmModel = llmModel;
             if (promptType)
                 where.promptType = promptType;
-            const result = yield prisma_1.default.lLMResult.deleteMany({ where });
-            return { deletedCount: result.count };
+            const result = yield prisma_1.default.lLMResult.deleteMany({
+                where,
+            });
+            return {
+                deletedCount: result.count,
+            };
         });
     }
 }

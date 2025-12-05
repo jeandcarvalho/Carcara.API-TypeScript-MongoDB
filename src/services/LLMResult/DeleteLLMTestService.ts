@@ -1,19 +1,25 @@
-import prismaClient from "../../prisma";
+// src/services/DeleteLLMTestService.ts
+import prismaClient  from "../../prisma";
 
-class DeleteLLMTestService {
-  async execute(
-    userId: string,
-    collectionId: string,
-    params: { testName: string; llmModel?: string; promptType?: string }
-  ) {
-    const { testName, llmModel, promptType } = params;
+type DeleteLLMTestParams = {
+  collectionId: string;
+  testName: string;
+  llmModel?: string;
+  promptType?: string;
+};
 
-    const collection = await prismaClient.collection.findFirst({
-      where: { id: collectionId, userId },
-    });
-
-    if (!collection) {
-      throw new Error("COLLECTION_NOT_FOUND_OR_FORBIDDEN");
+export class DeleteLLMTestService {
+  async execute({
+    collectionId,
+    testName,
+    llmModel,
+    promptType,
+  }: DeleteLLMTestParams) {
+    if (!collectionId) {
+      throw new Error("COLLECTION_ID_REQUIRED");
+    }
+    if (!testName) {
+      throw new Error("TEST_NAME_REQUIRED");
     }
 
     const where: any = {
@@ -24,10 +30,12 @@ class DeleteLLMTestService {
     if (llmModel) where.llmModel = llmModel;
     if (promptType) where.promptType = promptType;
 
-    const result = await prismaClient.lLMResult.deleteMany({ where });
+    const result = await prismaClient.lLMResult.deleteMany({
+      where,
+    });
 
-    return { deletedCount: result.count };
+    return {
+      deletedCount: result.count,
+    };
   }
 }
-
-export { DeleteLLMTestService };
