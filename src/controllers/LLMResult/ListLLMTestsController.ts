@@ -1,37 +1,34 @@
-// src/controllers/ListLLMTestsController.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { ListLLMTestsService } from "../../services/LLMResult/ListLLMTestsService";
 
-type ListLLMTestsParams = {
-  collectionId: string;
-};
-
-export class ListLLMTestsController {
-  async handle(
-    request: FastifyRequest<{ Params: ListLLMTestsParams }>,
-    reply: FastifyReply
-  ) {
+class ListLLMTestsController {
+  async handle(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const userId = (request as any).user_id as string;
-      const { collectionId } = request.params;
-
-      if (!userId) {
-        return reply.status(401).send({ error: "UNAUTHORIZED" });
+      const user = (request as any).user as { id: string } | undefined;
+      if (!user) {
+        return reply.status(401).send({ error: "Unauthorized." });
       }
 
-      if (!collectionId) {
-        return reply
-          .status(400)
-          .send({ error: "COLLECTION_ID_REQUIRED" });
-      }
+      const { collectionId } = request.params as { collectionId: string };
 
       const service = new ListLLMTestsService();
-      const tests = await service.execute({ collectionId });
+      const data = await service.execute(user.id, collectionId);
 
-      return reply.send({ data: tests });
+      return reply.status(200).send({ data });
     } catch (err: any) {
       console.error("[ListLLMTestsController] Error:", err);
-      return reply.status(500).send({ error: "INTERNAL_SERVER_ERROR" });
+
+      if (err.message === "COLLECTION_NOT_FOUND_OR_FORBIDDEN") {
+        return reply
+          .status(404)
+          .send({ error: "Collection not found or not allowed." });
+      }
+
+      return reply
+        .status(500)
+        .send({ error: "Error listing LLM tests." });
     }
   }
 }
+
+export { ListLLMTestsController };

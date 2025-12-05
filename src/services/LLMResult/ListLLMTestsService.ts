@@ -1,17 +1,19 @@
-// src/services/ListLLMTestsService.ts
-import prismaClient from "../../prisma"; // ajusta o path se for diferente
+import prismaClient from "../../prisma";
 
-type ListLLMTestsParams = {
-  collectionId: string;
-};
+class ListLLMTestsService {
+  async execute(userId: string, collectionId: string) {
+    // garante que a coleção é do usuário
+    const collection = await prismaClient.collection.findFirst({
+      where: {
+        id: collectionId,
+        userId,
+      },
+    });
 
-export class ListLLMTestsService {
-  async execute({ collectionId }: ListLLMTestsParams) {
-    if (!collectionId) {
-      throw new Error("COLLECTION_ID_REQUIRED");
+    if (!collection) {
+      throw new Error("COLLECTION_NOT_FOUND_OR_FORBIDDEN");
     }
 
-    // groupBy por combinação de teste
     const grouped = await prismaClient.lLMResult.groupBy({
       by: ["testName", "llmModel", "promptType"],
       where: {
@@ -21,7 +23,6 @@ export class ListLLMTestsService {
       _min: { createdAt: true },
     });
 
-    // normaliza resposta pro front
     return grouped.map((g) => ({
       testName: g.testName,
       llmModel: g.llmModel,
@@ -31,3 +32,5 @@ export class ListLLMTestsService {
     }));
   }
 }
+
+export { ListLLMTestsService };

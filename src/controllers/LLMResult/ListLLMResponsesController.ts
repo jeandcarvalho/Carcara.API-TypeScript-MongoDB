@@ -1,58 +1,49 @@
-// src/controllers/ListLLMResponsesController.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { ListLLMResponsesService } from "../../services/LLMResult/ListLLMResponsesService";
 
-type ListLLMResponsesParams = {
-  collectionId: string;
-};
-
-type ListLLMResponsesQuery = {
-  testName?: string;
-  llmModel?: string;
-  promptType?: string;
-};
-
-export class ListLLMResponsesController {
-  async handle(
-    request: FastifyRequest<{
-      Params: ListLLMResponsesParams;
-      Querystring: ListLLMResponsesQuery;
-    }>,
-    reply: FastifyReply
-  ) {
+class ListLLMResponsesController {
+  async handle(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const userId = (request as any).user_id as string;
-      const { collectionId } = request.params;
-      const { testName, llmModel, promptType } = request.query;
-
-      if (!userId) {
-        return reply.status(401).send({ error: "UNAUTHORIZED" });
+      const user = (request as any).user as { id: string } | undefined;
+      if (!user) {
+        return reply.status(401).send({ error: "Unauthorized." });
       }
 
-      if (!collectionId) {
-        return reply
-          .status(400)
-          .send({ error: "COLLECTION_ID_REQUIRED" });
-      }
+      const { collectionId } = request.params as { collectionId: string };
+      const { testName, llmModel, promptType } = request.query as {
+        testName?: string;
+        llmModel?: string;
+        promptType?: string;
+      };
 
       if (!testName) {
         return reply
           .status(400)
-          .send({ error: "TEST_NAME_REQUIRED" });
+          .send({ error: "testName is required." });
       }
 
       const service = new ListLLMResponsesService();
-      const data = await service.execute({
-        collectionId,
+      const data = await service.execute(user.id, collectionId, {
         testName,
         llmModel,
         promptType,
       });
 
-      return reply.send({ data });
+      return reply.status(200).send({ data });
     } catch (err: any) {
       console.error("[ListLLMResponsesController] Error:", err);
-      return reply.status(500).send({ error: "INTERNAL_SERVER_ERROR" });
+
+      if (err.message === "COLLECTION_NOT_FOUND_OR_FORBIDDEN") {
+        return reply
+          .status(404)
+          .send({ error: "Collection not found or not allowed." });
+      }
+
+      return reply
+        .status(500)
+        .send({ error: "Error listing LLM responses." });
     }
   }
 }
+
+export { ListLLMResponsesController };

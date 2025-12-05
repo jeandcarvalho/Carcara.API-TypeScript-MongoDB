@@ -13,15 +13,20 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ListLLMTestsService = void 0;
-// src/services/ListLLMTestsService.ts
-const prisma_1 = __importDefault(require("../../prisma")); // ajusta o path se for diferente
+const prisma_1 = __importDefault(require("../../prisma"));
 class ListLLMTestsService {
-    execute({ collectionId }) {
+    execute(userId, collectionId) {
         return __awaiter(this, void 0, void 0, function* () {
-            if (!collectionId) {
-                throw new Error("COLLECTION_ID_REQUIRED");
+            // garante que a coleção é do usuário
+            const collection = yield prisma_1.default.collection.findFirst({
+                where: {
+                    id: collectionId,
+                    userId,
+                },
+            });
+            if (!collection) {
+                throw new Error("COLLECTION_NOT_FOUND_OR_FORBIDDEN");
             }
-            // groupBy por combinação de teste
             const grouped = yield prisma_1.default.lLMResult.groupBy({
                 by: ["testName", "llmModel", "promptType"],
                 where: {
@@ -30,7 +35,6 @@ class ListLLMTestsService {
                 _count: { _all: true },
                 _min: { createdAt: true },
             });
-            // normaliza resposta pro front
             return grouped.map((g) => ({
                 testName: g.testName,
                 llmModel: g.llmModel,

@@ -107,13 +107,16 @@ function routes(fastify, options) {
         /* ===============================
            ITEMS DA LLMRESULT (acq_id + sec)
       =============================== */
-        fastify.get("/api/llm/tests/:collectionId", (request, reply) => __awaiter(this, void 0, void 0, function* () {
+        // 1) Lista os testes agregados (por testName) de uma coleção
+        fastify.get("/api/llm/tests/:collectionId", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListLLMTestsController_1.ListLLMTestsController().handle(request, reply);
         }));
-        fastify.get("/api/llm/test-docs/:collectionId", (request, reply) => __awaiter(this, void 0, void 0, function* () {
+        // 2) Lista os docs (acq_id + sec) de um teste específico
+        fastify.get("/api/llm/test-docs/:collectionId", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListLLMResponsesController_1.ListLLMResponsesController().handle(request, reply);
         }));
-        fastify.delete("/api/llm/tests/:collectionId", (request, reply) => __awaiter(this, void 0, void 0, function* () {
+        // 3) Deleta todos os docs de um teste em uma coleção
+        fastify.delete("/api/llm/tests/:collectionId", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new DeleteLLMTestController_1.DeleteLLMTestController().handle(request, reply);
         }));
     });

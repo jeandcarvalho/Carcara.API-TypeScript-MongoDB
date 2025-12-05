@@ -15,34 +15,35 @@ class DeleteLLMTestController {
     handle(request, reply) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const userId = request.user_id;
+                const user = request.user;
+                if (!user) {
+                    return reply.status(401).send({ error: "Unauthorized." });
+                }
                 const { collectionId } = request.params;
                 const { testName, llmModel, promptType } = request.query;
-                if (!userId) {
-                    return reply.status(401).send({ error: "UNAUTHORIZED" });
-                }
-                if (!collectionId) {
-                    return reply
-                        .status(400)
-                        .send({ error: "COLLECTION_ID_REQUIRED" });
-                }
                 if (!testName) {
                     return reply
                         .status(400)
-                        .send({ error: "TEST_NAME_REQUIRED" });
+                        .send({ error: "testName is required." });
                 }
                 const service = new DeleteLLMTestService_1.DeleteLLMTestService();
-                const result = yield service.execute({
-                    collectionId,
+                const result = yield service.execute(user.id, collectionId, {
                     testName,
                     llmModel,
                     promptType,
                 });
-                return reply.send(Object.assign({ success: true }, result));
+                return reply.status(200).send(Object.assign({ success: true }, result));
             }
             catch (err) {
                 console.error("[DeleteLLMTestController] Error:", err);
-                return reply.status(500).send({ error: "INTERNAL_SERVER_ERROR" });
+                if (err.message === "COLLECTION_NOT_FOUND_OR_FORBIDDEN") {
+                    return reply
+                        .status(404)
+                        .send({ error: "Collection not found or not allowed." });
+                }
+                return reply
+                    .status(500)
+                    .send({ error: "Error deleting LLM test." });
             }
         });
     }

@@ -1,25 +1,19 @@
-// src/services/ListLLMResponsesService.ts
 import prismaClient from "../../prisma";
 
-type ListLLMResponsesParams = {
-  collectionId: string;
-  testName: string;
-  llmModel?: string;
-  promptType?: string;
-};
+class ListLLMResponsesService {
+  async execute(
+    userId: string,
+    collectionId: string,
+    params: { testName: string; llmModel?: string; promptType?: string }
+  ) {
+    const { testName, llmModel, promptType } = params;
 
-export class ListLLMResponsesService {
-  async execute({
-    collectionId,
-    testName,
-    llmModel,
-    promptType,
-  }: ListLLMResponsesParams) {
-    if (!collectionId) {
-      throw new Error("COLLECTION_ID_REQUIRED");
-    }
-    if (!testName) {
-      throw new Error("TEST_NAME_REQUIRED");
+    const collection = await prismaClient.collection.findFirst({
+      where: { id: collectionId, userId },
+    });
+
+    if (!collection) {
+      throw new Error("COLLECTION_NOT_FOUND_OR_FORBIDDEN");
     }
 
     const where: any = {
@@ -41,12 +35,11 @@ export class ListLLMResponsesService {
         promptType: true,
         createdAt: true,
       },
-      orderBy: [
-        { acq_id: "asc" },
-        { sec: "asc" },
-      ],
+      orderBy: [{ acq_id: "asc" }, { sec: "asc" }],
     });
 
     return results;
   }
 }
+
+export { ListLLMResponsesService };

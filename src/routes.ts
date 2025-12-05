@@ -192,23 +192,29 @@ fastify.get(
     /* ===============================
        ITEMS DA LLMRESULT (acq_id + sec)
   =============================== */
-  fastify.get(
+// 1) Lista os testes agregados (por testName) de uma coleção
+fastify.get(
   "/api/llm/tests/:collectionId",
-  async (request: any, reply: FastifyReply) => {
+  { preHandler: [ensureAuthenticated] },
+  async (request: FastifyRequest, reply: FastifyReply) => {
     return new ListLLMTestsController().handle(request, reply);
   }
 );
 
+// 2) Lista os docs (acq_id + sec) de um teste específico
 fastify.get(
   "/api/llm/test-docs/:collectionId",
-  async (request: any, reply: FastifyReply) => {
+  { preHandler: [ensureAuthenticated] },
+  async (request: FastifyRequest, reply: FastifyReply) => {
     return new ListLLMResponsesController().handle(request, reply);
   }
 );
 
+// 3) Deleta todos os docs de um teste em uma coleção
 fastify.delete(
   "/api/llm/tests/:collectionId",
-  async (request: any, reply: FastifyReply) => {
+  { preHandler: [ensureAuthenticated] },
+  async (request: FastifyRequest, reply: FastifyReply) => {
     return new DeleteLLMTestController().handle(request, reply);
   }
 );
