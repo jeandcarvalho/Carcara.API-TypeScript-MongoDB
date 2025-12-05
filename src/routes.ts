@@ -33,6 +33,12 @@ import { ListCollectionsController } from "./controllers/ListCollectionsControll
 import { CreateCollectionController } from "./controllers/CreateCollectionController";
 import { DeleteCollectionController } from "./controllers/DeleteCollectionController";
 
+
+// Controllers de LLMResult 
+import { ListLLMTestsController } from "./controllers/LLMResult/ListLLMTestsController";
+import { ListLLMResponsesController } from "./controllers/LLMResult/ListLLMResponsesController";
+import { DeleteLLMTestController } from "./controllers/LLMResult/DeleteLLMTestController";
+
 export async function routes(
   fastify: FastifyInstance,
   options: FastifyPluginOptions
@@ -179,4 +185,38 @@ fastify.get(
       return new RemoveItemsFromCollectionController().handle(request, reply);
     }
   );
+
+  
+
+
+    /* ===============================
+       ITEMS DA LLMRESULT (acq_id + sec)
+  =============================== */
+  fastify.get(
+  "/api/llm/tests/:collectionId",
+  async (request: any, reply: FastifyReply) => {
+    return new ListLLMTestsController().handle(request, reply);
+  }
+);
+
+fastify.get(
+  "/api/llm/test-docs/:collectionId",
+  async (request: any, reply: FastifyReply) => {
+    return new ListLLMResponsesController().handle(request, reply);
+  }
+);
+
+fastify.delete(
+  "/api/llm/tests/:collectionId",
+  async (request: any, reply: FastifyReply) => {
+    return new DeleteLLMTestController().handle(request, reply);
+  }
+);
+
+
+
+
+
+
+
 }

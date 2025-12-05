@@ -192,6 +192,32 @@ model Links {
   @@map("links")   // 👈 garante que o Prisma use a coleção "links"
 }
 
+model LLMResult {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+
+  // vínculo com a coleção de highlights/collection
+  collectionId String   @db.ObjectId
+
+  acq_id       String
+  sec          Int
+
+  // identificação do teste LLM
+  testName     String
+  llmModel     String
+  promptType   String
+
+  // extras que você provavelmente já tem / vai ter
+  prompt       String?
+  response     String?
+  promptTokens Int?
+  completionTokens Int?
+  totalTokens  Int?
+  latencyMs    Int?
+
+  createdAt    DateTime @default(now())
+}
+
+
 
 
 

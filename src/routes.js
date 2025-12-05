@@ -32,6 +32,10 @@ const ensureAuthenticated_1 = require("./middlewares/ensureAuthenticated");
 const ListCollectionsController_1 = require("./controllers/ListCollectionsController");
 const CreateCollectionController_1 = require("./controllers/CreateCollectionController");
 const DeleteCollectionController_1 = require("./controllers/DeleteCollectionController");
+// Controllers de LLMResult 
+const ListLLMTestsController_1 = require("./controllers/LLMResult/ListLLMTestsController");
+const ListLLMResponsesController_1 = require("./controllers/LLMResult/ListLLMResponsesController");
+const DeleteLLMTestController_1 = require("./controllers/LLMResult/DeleteLLMTestController");
 function routes(fastify, options) {
     return __awaiter(this, void 0, void 0, function* () {
         /* ===============================
@@ -99,6 +103,18 @@ function routes(fastify, options) {
         // Remover momentos da coleção
         fastify.post("/collections/:collectionId/items/remove", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new remove_items_from_collection_1.RemoveItemsFromCollectionController().handle(request, reply);
+        }));
+        /* ===============================
+           ITEMS DA LLMRESULT (acq_id + sec)
+      =============================== */
+        fastify.get("/api/llm/tests/:collectionId", (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new ListLLMTestsController_1.ListLLMTestsController().handle(request, reply);
+        }));
+        fastify.get("/api/llm/test-docs/:collectionId", (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new ListLLMResponsesController_1.ListLLMResponsesController().handle(request, reply);
+        }));
+        fastify.delete("/api/llm/tests/:collectionId", (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new DeleteLLMTestController_1.DeleteLLMTestController().handle(request, reply);
         }));
     });
 }
