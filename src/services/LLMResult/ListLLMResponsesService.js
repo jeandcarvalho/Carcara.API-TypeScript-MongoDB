@@ -18,12 +18,10 @@ const prisma_1 = __importDefault(require("../../prisma"));
 class ListLLMResponsesService {
     execute({ collectionId, testName, llmModel, promptType, }) {
         return __awaiter(this, void 0, void 0, function* () {
-            if (!collectionId) {
+            if (!collectionId)
                 throw new Error("COLLECTION_ID_REQUIRED");
-            }
-            if (!testName) {
+            if (!testName)
                 throw new Error("TEST_NAME_REQUIRED");
-            }
             const where = {
                 collectionId,
                 testName,
@@ -36,30 +34,16 @@ class ListLLMResponsesService {
             const results = yield prisma_1.default.lLMResult.findMany({
                 where,
                 select: {
-                    id: true,
                     acq_id: true,
                     sec: true,
-                    llmModel: true,
-                    testName: true,
-                    promptType: true,
-                    prompt: true,
-                    response: true,
-                    totalTokens: true,
-                    latencyMs: true, // 👈 aqui agora é latencyMs
-                    createdAt: true,
                 },
                 orderBy: [
                     { acq_id: "asc" },
-                    { sec: "asc" },
+                    { sec: "asc" }
                 ],
             });
-            console.log("[ListLLMResponsesService] found docs:", results.length);
-            // Se o schema tem latencyMs mesmo, não precisa converter nada,
-            // só repassar pro front.
-            return results.map((r) => {
-                var _a;
-                return (Object.assign(Object.assign({}, r), { latencyMs: (_a = r.latencyMs) !== null && _a !== void 0 ? _a : null }));
-            });
+            console.log("[ListLLMResponsesService] returning docs:", results.length);
+            return results;
         });
     }
 }

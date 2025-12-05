@@ -15,12 +15,13 @@ class ListLLMResponsesController {
     handle(request, reply) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
+                // auth padrão da tua API
                 const user = request.user;
-                const { collectionId } = request.params;
-                const { testName, llmModel, promptType } = request.query;
                 if (!user) {
                     return reply.status(401).send({ error: "UNAUTHORIZED" });
                 }
+                const { collectionId } = request.params;
+                const { testName, llmModel, promptType, page, pageSize, } = request.query;
                 if (!collectionId) {
                     return reply
                         .status(400)
@@ -31,18 +32,36 @@ class ListLLMResponsesController {
                         .status(400)
                         .send({ error: "TEST_NAME_REQUIRED" });
                 }
+                const pageNum = Number.isFinite(Number(page)) && Number(page) > 0
+                    ? Number(page)
+                    : 1;
+                const pageSizeNum = Number.isFinite(Number(pageSize)) && Number(pageSize) > 0
+                    ? Math.min(Number(pageSize), 200)
+                    : 20;
                 const service = new ListLLMResponsesService_1.ListLLMResponsesService();
-                const data = yield service.execute({
+                const allResults = yield service.execute({
                     collectionId,
                     testName,
                     llmModel,
                     promptType,
                 });
-                return reply.send({ data });
+                const total = allResults.length;
+                const start = (pageNum - 1) * pageSizeNum;
+                const end = start + pageSizeNum;
+                const items = allResults.slice(start, end);
+                // items aqui têm só acq_id e sec (como você pediu)
+                return reply.send({
+                    items,
+                    total,
+                    page: pageNum,
+                    pageSize: pageSizeNum,
+                });
             }
             catch (err) {
                 console.error("[ListLLMResponsesController] Error:", err);
-                return reply.status(500).send({ error: "INTERNAL_SERVER_ERROR" });
+                return reply
+                    .status(500)
+                    .send({ error: "INTERNAL_SERVER_ERROR" });
             }
         });
     }

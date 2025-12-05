@@ -15,12 +15,8 @@ export class ListLLMResponsesService {
     llmModel,
     promptType,
   }: ListLLMResponsesParams) {
-    if (!collectionId) {
-      throw new Error("COLLECTION_ID_REQUIRED");
-    }
-    if (!testName) {
-      throw new Error("TEST_NAME_REQUIRED");
-    }
+    if (!collectionId) throw new Error("COLLECTION_ID_REQUIRED");
+    if (!testName) throw new Error("TEST_NAME_REQUIRED");
 
     const where: any = {
       collectionId,
@@ -35,34 +31,20 @@ export class ListLLMResponsesService {
     const results = await prismaClient.lLMResult.findMany({
       where,
       select: {
-        id: true,
         acq_id: true,
         sec: true,
-        llmModel: true,
-        testName: true,
-        promptType: true,
-        prompt: true,
-        response: true,
-        totalTokens: true,
-        latencyMs: true,   // 👈 aqui agora é latencyMs
-        createdAt: true,
       },
       orderBy: [
         { acq_id: "asc" },
-        { sec: "asc" },
+        { sec: "asc" }
       ],
     });
 
     console.log(
-      "[ListLLMResponsesService] found docs:",
+      "[ListLLMResponsesService] returning docs:",
       results.length
     );
 
-    // Se o schema tem latencyMs mesmo, não precisa converter nada,
-    // só repassar pro front.
-    return results.map((r) => ({
-      ...r,
-      latencyMs: r.latencyMs ?? null,
-    }));
+    return results;
   }
 }
