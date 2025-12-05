@@ -45,13 +45,27 @@ class ListLLMResponsesController {
                 const total = allResults.length;
                 const start = (pageNum - 1) * pageSizeNum;
                 const end = start + pageSizeNum;
-                const items = allResults.slice(start, end);
-                return reply.send({
-                    items,
-                    total,
-                    page: pageNum,
-                    pageSize: pageSizeNum,
-                });
+                // meta: pega do primeiro doc; se não tiver, usa query
+                const meta = allResults[0]
+                    ? {
+                        testName: allResults[0].testName,
+                        llmModel: allResults[0].llmModel,
+                        promptType: allResults[0].promptType,
+                        // prompt: allResults[0].prompt,
+                    }
+                    : {
+                        testName,
+                        llmModel: llmModel !== null && llmModel !== void 0 ? llmModel : null,
+                        promptType: promptType !== null && promptType !== void 0 ? promptType : null,
+                        // prompt: null,
+                    };
+                // items: só acq_id + sec (como você pediu)
+                const items = allResults.slice(start, end).map((r) => ({
+                    acq_id: r.acq_id,
+                    sec: r.sec,
+                }));
+                return reply.send(Object.assign({ items,
+                    total, page: pageNum, pageSize: pageSizeNum }, meta));
             }
             catch (err) {
                 console.error("[ListLLMResponsesController] Error:", err);

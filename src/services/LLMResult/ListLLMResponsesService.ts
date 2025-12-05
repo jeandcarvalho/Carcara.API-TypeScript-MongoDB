@@ -1,3 +1,4 @@
+// src/services/LLMResult/ListLLMResponsesService.ts
 import prismaClient from "../../prisma";
 
 type ListLLMResponsesParams = {
@@ -31,20 +32,32 @@ export class ListLLMResponsesService {
       where,
       select: {
         acq_id: true,
-        sec: true, // se não existir, pode trocar para centerSec
+        centerSec: true,
+        llmModel: true,
+        testName: true,
+        promptType: true,
+        // se quiser ter o prompt bruto disponível:
+        // prompt: true,
       },
       orderBy: [
         { acq_id: "asc" },
-        { sec: "asc" },
+        { centerSec: "asc" },
       ],
     });
 
     console.log(
-      "[ListLLMResponsesService] returning docs:",
+      "[ListLLMResponsesService] found docs:",
       results.length
     );
 
-    // já está no formato { acq_id, sec }
-    return results;
+    // mapeia para um formato intermediário (com meta em cada doc)
+    return results.map((r) => ({
+      acq_id: r.acq_id,
+      sec: r.centerSec,
+      llmModel: r.llmModel,
+      testName: r.testName,
+      promptType: r.promptType,
+      // prompt: r.prompt,
+    }));
   }
 }

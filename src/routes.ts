@@ -205,7 +205,7 @@ fastify.get(
 fastify.get(
   "/api/llm/test-docs/:collectionId",
   { preHandler: [ensureAuthenticated] },
-  async (request: FastifyRequest, reply: FastifyReply) => {
+  async (request, reply) => {
     return new ListLLMResponsesController().handle(request, reply);
   }
 );

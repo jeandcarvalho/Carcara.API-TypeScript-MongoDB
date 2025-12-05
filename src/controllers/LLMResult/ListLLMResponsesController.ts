@@ -1,3 +1,4 @@
+// src/controllers/LLMResult/ListLLMResponsesController.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { ListLLMResponsesService } from "../../services/LLMResult/ListLLMResponsesService";
 
@@ -63,13 +64,33 @@ export class ListLLMResponsesController {
       const start = (pageNum - 1) * pageSizeNum;
       const end = start + pageSizeNum;
 
-      const items = allResults.slice(start, end);
+      // meta: pega do primeiro doc; se não tiver, usa query
+      const meta = allResults[0]
+        ? {
+            testName: allResults[0].testName,
+            llmModel: allResults[0].llmModel,
+            promptType: allResults[0].promptType,
+            // prompt: allResults[0].prompt,
+          }
+        : {
+            testName,
+            llmModel: llmModel ?? null,
+            promptType: promptType ?? null,
+            // prompt: null,
+          };
+
+      // items: só acq_id + sec (como você pediu)
+      const items = allResults.slice(start, end).map((r) => ({
+        acq_id: r.acq_id,
+        sec: r.sec,
+      }));
 
       return reply.send({
         items,
         total,
         page: pageNum,
         pageSize: pageSizeNum,
+        ...meta, // testName, llmModel, promptType (+ prompt se quiser)
       });
     } catch (err: any) {
       console.error("[ListLLMResponsesController] Error:", err);

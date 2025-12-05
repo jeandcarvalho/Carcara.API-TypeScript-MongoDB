@@ -195,21 +195,17 @@ model Links {
 model LLMResult {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
 
-  // aqui é string simples, igual está no banco hoje
   collectionId String   @map("collectionId")
 
   acq_id       String
 
-  // se ainda não tiver `sec` nos docs antigos, tudo bem pra leitura
-  centerSec Int? @map("center_sec")
+  centerSec    Int      @map("center_sec")
+  secs         Int[]    @map("secs")
 
-
-  // mapeia snake_case -> camelCase
   testName     String   @map("test_name")
   llmModel     String   @map("llm_model")
   promptType   String   @map("prompt_type")
 
-  // mapeia prompt/answer e métricas
   prompt       String?  @map("prompt_text")
   response     String?  @map("answer")
   totalTokens  Int?     @map("total_tokens")
