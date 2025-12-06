@@ -214,6 +214,37 @@ model LLMResult {
   createdAt    DateTime @default(now())
 }
 
+model LLMTestEval {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+
+  collectionId String   @map("collectionId")
+
+  userEmail    String   @map("user_email")
+  userName     String   @map("user_name")
+
+  acq_id       String
+  sec          Int
+
+  testName     String   @map("test_name")
+  llmModel     String   @map("llm_model")
+  promptType   String   @map("prompt_type")
+
+  // notas 0..5
+  test1        Int
+  test2        Int
+  test3        Int
+  test4        Int
+  test5        Int
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+
+  
+
+}
+
+
 
 
 

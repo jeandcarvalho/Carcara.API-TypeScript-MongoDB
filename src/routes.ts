@@ -39,6 +39,10 @@ import { ListLLMTestsController } from "./controllers/LLMResult/ListLLMTestsCont
 import { ListLLMResponsesController } from "./controllers/LLMResult/ListLLMResponsesController";
 import { DeleteLLMTestController } from "./controllers/LLMResult/DeleteLLMTestController";
 
+// Controllers de LLMEvaluation
+import { ListLLMTestEvalController } from "./controllers/Evaluation/ListLLMTestEvalController";
+import { UpsertLLMTestEvalController } from "./controllers/Evaluation/UpsertLLMTestEvalController";
+
 export async function routes(
   fastify: FastifyInstance,
   options: FastifyPluginOptions
@@ -217,6 +221,31 @@ fastify.delete(
   { preHandler: [ensureAuthenticated] },
   async (request: FastifyRequest, reply: FastifyReply) => {
     return new DeleteLLMTestController().handle(request, reply);
+  }
+);
+
+
+
+/* ===============================
+       LLM TEST EVALUATION
+   (Avaliações 0..5 por sec)
+=============================== */
+
+// 1) Cria ou atualiza avaliação (upsert)
+fastify.post(
+  "/api/llm/eval",
+  { preHandler: [ensureAuthenticated] },
+  async (request: FastifyRequest, reply: FastifyReply) => {
+    return new UpsertLLMTestEvalController().handle(request, reply);
+  }
+);
+
+// 2) Lista avaliações filtradas
+fastify.get(
+  "/api/llm/eval",
+  { preHandler: [ensureAuthenticated] },
+  async (request: FastifyRequest, reply: FastifyReply) => {
+    return new ListLLMTestEvalController().handle(request, reply);
   }
 );
 

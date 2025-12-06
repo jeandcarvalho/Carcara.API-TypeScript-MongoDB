@@ -36,6 +36,9 @@ const DeleteCollectionController_1 = require("./controllers/DeleteCollectionCont
 const ListLLMTestsController_1 = require("./controllers/LLMResult/ListLLMTestsController");
 const ListLLMResponsesController_1 = require("./controllers/LLMResult/ListLLMResponsesController");
 const DeleteLLMTestController_1 = require("./controllers/LLMResult/DeleteLLMTestController");
+// Controllers de LLMEvaluation
+const ListLLMTestEvalController_1 = require("./controllers/Evaluation/ListLLMTestEvalController");
+const UpsertLLMTestEvalController_1 = require("./controllers/Evaluation/UpsertLLMTestEvalController");
 function routes(fastify, options) {
     return __awaiter(this, void 0, void 0, function* () {
         /* ===============================
@@ -120,6 +123,18 @@ function routes(fastify, options) {
         // 3) Deleta todos os docs de um teste em uma coleção
         fastify.delete("/api/llm/tests/:collectionId", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new DeleteLLMTestController_1.DeleteLLMTestController().handle(request, reply);
+        }));
+        /* ===============================
+               LLM TEST EVALUATION
+           (Avaliações 0..5 por sec)
+        =============================== */
+        // 1) Cria ou atualiza avaliação (upsert)
+        fastify.post("/api/llm/eval", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new UpsertLLMTestEvalController_1.UpsertLLMTestEvalController().handle(request, reply);
+        }));
+        // 2) Lista avaliações filtradas
+        fastify.get("/api/llm/eval", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+            return new ListLLMTestEvalController_1.ListLLMTestEvalController().handle(request, reply);
         }));
     });
 }
