@@ -42,6 +42,7 @@ import { DeleteLLMTestController } from "./controllers/LLMResult/DeleteLLMTestCo
 // Controllers de LLMEvaluation
 import { ListLLMTestEvalController } from "./controllers/Evaluation/ListLLMTestEvalController";
 import { UpsertLLMTestEvalController } from "./controllers/Evaluation/UpsertLLMTestEvalController";
+import { PublicGetLLMResultContextController } from "./controllers/Evaluation/PublicGetLLMResultContextController";
 
 export async function routes(
   fastify: FastifyInstance,
@@ -250,6 +251,10 @@ fastify.get(
 );
 
 
+fastify.get(
+    "/public/llmresult/context",
+    new PublicGetLLMResultContextController().handle
+  );
 
 
 

@@ -39,6 +39,7 @@ const DeleteLLMTestController_1 = require("./controllers/LLMResult/DeleteLLMTest
 // Controllers de LLMEvaluation
 const ListLLMTestEvalController_1 = require("./controllers/Evaluation/ListLLMTestEvalController");
 const UpsertLLMTestEvalController_1 = require("./controllers/Evaluation/UpsertLLMTestEvalController");
+const PublicGetLLMResultContextController_1 = require("./controllers/Evaluation/PublicGetLLMResultContextController");
 function routes(fastify, options) {
     return __awaiter(this, void 0, void 0, function* () {
         /* ===============================
@@ -136,6 +137,7 @@ function routes(fastify, options) {
         fastify.get("/api/llm/eval", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListLLMTestEvalController_1.ListLLMTestEvalController().handle(request, reply);
         }));
+        fastify.get("/public/llmresult/context", new PublicGetLLMResultContextController_1.PublicGetLLMResultContextController().handle);
     });
 }
 exports.routes = routes;
