@@ -1,27 +1,39 @@
+// src/controllers/UpsertLLMTestEvalController.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { UpsertLLMTestEvalService } from "../../services/Evaluation/UpsertLLMTestEvalService";
+import prismaClient from "../../prisma";
 
 type AuthUser = {
   id: string;
-  email?: string;
-  name?: string;
 };
 
 class UpsertLLMTestEvalController {
   async handle(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const user = (request as any).user as AuthUser | undefined;
+      const authUser = (request as any).user as AuthUser | undefined;
 
-      if (!user) {
+      if (!authUser || !authUser.id) {
         return reply.status(401).send({ error: "Unauthorized." });
       }
+
+      // Busca o usuário completo pra ter email e name
+      const dbUser = await prismaClient.user.findUnique({
+        where: { id: authUser.id },
+      });
+
+      if (!dbUser || !dbUser.email) {
+        return reply
+          .status(400)
+          .send({ error: "User email and name are required." });
+      }
+
+      const userEmail = dbUser.email;
+      const userNameFinal = dbUser.name || dbUser.email;
 
       const body = request.body as any;
 
       const {
         collectionId,
-        email,     // email do usuário logado vindo do front (opcional se vier do token)
-        userName,  // nome do usuário logado vindo do front (opcional se vier do token)
         acq_id,
         sec,
         testName,
@@ -34,8 +46,14 @@ class UpsertLLMTestEvalController {
         test5,
       } = body;
 
-      if (!collectionId || !acq_id || sec === undefined ||
-          !testName || !llmModel || !promptType) {
+      if (
+        !collectionId ||
+        !acq_id ||
+        sec === undefined ||
+        !testName ||
+        !llmModel ||
+        !promptType
+      ) {
         return reply.status(400).send({ error: "Missing required fields." });
       }
 
@@ -51,22 +69,16 @@ class UpsertLLMTestEvalController {
         Number.isInteger(v)
       );
       if (!allInts) {
-        return reply.status(400).send({ error: "sec and tests must be integers." });
+        return reply
+          .status(400)
+          .send({ error: "sec and tests must be integers." });
       }
 
       const inRange = [t1, t2, t3, t4, t5].every((v) => v >= 0 && v <= 5);
       if (!inRange) {
-        return reply.status(400).send({ error: "Tests must be between 0 and 5." });
-      }
-
-      // tenta pegar email e nome do token; se não tiver, usa o que veio no body
-      const userEmail = user.email ?? email;
-      const userNameFinal = user.name ?? userName;
-
-      if (!userEmail || !userNameFinal) {
         return reply
           .status(400)
-          .send({ error: "User email and name are required." });
+          .send({ error: "Tests must be between 0 and 5." });
       }
 
       const service = new UpsertLLMTestEvalService();
@@ -90,7 +102,9 @@ class UpsertLLMTestEvalController {
       return reply.send(result);
     } catch (err) {
       console.error("[UpsertLLMTestEvalController] Error:", err);
-      return reply.status(500).send({ error: "Error saving LLM test eval." });
+      return reply
+        .status(500)
+        .send({ error: "Error saving LLM test eval." });
     }
   }
 }

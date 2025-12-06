@@ -13,6 +13,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UpsertLLMTestEvalService = void 0;
+// src/services/UpsertLLMTestEvalService.ts
 const prisma_1 = __importDefault(require("../../prisma"));
 class UpsertLLMTestEvalService {
     execute(input) {
@@ -37,7 +38,7 @@ class UpsertLLMTestEvalService {
                         id: existing.id,
                     },
                     data: {
-                        userName, // pode atualizar o nome também
+                        userName, // atualiza nome também se mudou
                         test1,
                         test2,
                         test3,
@@ -47,7 +48,7 @@ class UpsertLLMTestEvalService {
                 });
                 return updated;
             }
-            // 3) senão, cria um novo
+            // 3) se não existir, cria um novo
             const created = yield prisma_1.default.lLMTestEval.create({
                 data: {
                     collectionId,

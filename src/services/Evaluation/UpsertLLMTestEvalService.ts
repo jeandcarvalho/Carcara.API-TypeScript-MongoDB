@@ -1,3 +1,4 @@
+// src/services/UpsertLLMTestEvalService.ts
 import prismaClient from "../../prisma";
 
 type UpsertLLMTestEvalInput = {
@@ -58,7 +59,7 @@ class UpsertLLMTestEvalService {
           id: existing.id,
         },
         data: {
-          userName, // pode atualizar o nome também
+          userName, // atualiza nome também se mudou
           test1,
           test2,
           test3,
@@ -70,7 +71,7 @@ class UpsertLLMTestEvalService {
       return updated;
     }
 
-    // 3) senão, cria um novo
+    // 3) se não existir, cria um novo
     const created = await prismaClient.lLMTestEval.create({
       data: {
         collectionId,

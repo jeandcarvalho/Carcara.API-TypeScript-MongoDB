@@ -1,52 +1,44 @@
+// src/controllers/ListLLMTestEvalController.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { ListLLMTestEvalService } from "../../services/Evaluation/ListLLMTestEvalService";
+import prismaClient from "../../prisma";
 
 type AuthUser = {
   id: string;
-  email?: string;
-  name?: string;
 };
 
 class ListLLMTestEvalController {
   async handle(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const user = (request as any).user as AuthUser | undefined;
+      const authUser = (request as any).user as AuthUser | undefined;
 
-      if (!user) {
+      if (!authUser || !authUser.id) {
         return reply.status(401).send({ error: "Unauthorized." });
       }
 
+      // pega email/name a partir do id do token
+      const dbUser = await prismaClient.user.findUnique({
+        where: { id: authUser.id },
+      });
+
+      if (!dbUser || !dbUser.email) {
+        return reply
+          .status(400)
+          .send({ error: "User email and name are required." });
+      }
+
+      const userEmail = dbUser.email;
+      const userNameFinal = dbUser.name || dbUser.email;
+
       const query = request.query as any;
 
-      const {
-        collectionId,
-        email,
-        userName,
-        testName,
-        llmModel,
-        promptType,
-      } = query;
+      const { collectionId, testName, llmModel, promptType } = query;
 
-      if (
-        !collectionId ||
-        !testName ||
-        !llmModel ||
-        !promptType
-      ) {
+      if (!collectionId || !testName || !llmModel || !promptType) {
         return reply.status(400).send({
           error:
             "collectionId, testName, llmModel and promptType are required in query.",
         });
-      }
-
-      // mesma lógica: se token tiver email/nome, prioriza ele; senão, usa query
-      const userEmail = user.email ?? email;
-      const userNameFinal = user.name ?? userName;
-
-      if (!userEmail || !userNameFinal) {
-        return reply
-          .status(400)
-          .send({ error: "User email and name are required." });
       }
 
       const service = new ListLLMTestEvalService();
