@@ -17,12 +17,10 @@ type ListLLMResponsesQuery = {
 export class ListLLMResponsesController {
   async handle(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const user = (request as any).user as { id: string } | undefined;
-      if (!user) {
-        return reply.status(401).send({ error: "UNAUTHORIZED" });
-      }
+      // 🔓 endpoint agora é público – não exige mais user / auth
+      const { collectionId } =
+        request.params as ListLLMResponsesParams;
 
-      const { collectionId } = request.params as ListLLMResponsesParams;
       const {
         testName,
         llmModel,
@@ -65,32 +63,33 @@ export class ListLLMResponsesController {
       const end = start + pageSizeNum;
 
       // meta: pega do primeiro doc; se não tiver, usa query
-      const meta = allResults[0]
+      const first = allResults[0];
+
+      const meta = first
         ? {
-            testName: allResults[0].testName,
-            llmModel: allResults[0].llmModel,
-            promptType: allResults[0].promptType,
-            // prompt: allResults[0].prompt,
+            testName: first.testName,
+            llmModel: first.llmModel,
+            promptType: first.promptType,
+            // se quiser expor um "prompt padrão" para o header da página:
+            prompt: (first as any).prompt ?? null,
           }
         : {
             testName,
             llmModel: llmModel ?? null,
             promptType: promptType ?? null,
-            // prompt: null,
+            prompt: null,
           };
 
-      // items: só acq_id + sec (como você pediu)
-      const items = allResults.slice(start, end).map((r) => ({
-        acq_id: r.acq_id,
-        sec: r.sec,
-      }));
+      // ✅ agora mandamos os docs completos da página selecionada
+      // (acq_id, sec, prompt, response, tokens, latency, createdAt, etc)
+      const items = allResults.slice(start, end);
 
       return reply.send({
         items,
         total,
         page: pageNum,
         pageSize: pageSizeNum,
-        ...meta, // testName, llmModel, promptType (+ prompt se quiser)
+        ...meta,
       });
     } catch (err: any) {
       console.error("[ListLLMResponsesController] Error:", err);

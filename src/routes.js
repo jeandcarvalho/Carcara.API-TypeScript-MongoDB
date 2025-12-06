@@ -112,7 +112,9 @@ function routes(fastify, options) {
             return new ListLLMTestsController_1.ListLLMTestsController().handle(request, reply);
         }));
         // 2) Lista os docs (acq_id + sec) de um teste específico
-        fastify.get("/api/llm/test-docs/:collectionId", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+        fastify.get("/api/llm/test-docs/:collectionId", 
+        // ✅ sem ensureAuthenticated aqui
+        (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListLLMResponsesController_1.ListLLMResponsesController().handle(request, reply);
         }));
         // 3) Deleta todos os docs de um teste em uma coleção

@@ -204,11 +204,12 @@ fastify.get(
 // 2) Lista os docs (acq_id + sec) de um teste específico
 fastify.get(
   "/api/llm/test-docs/:collectionId",
-  { preHandler: [ensureAuthenticated] },
+  // ✅ sem ensureAuthenticated aqui
   async (request, reply) => {
     return new ListLLMResponsesController().handle(request, reply);
   }
 );
+
 
 // 3) Deleta todos os docs de um teste em uma coleção
 fastify.delete(
