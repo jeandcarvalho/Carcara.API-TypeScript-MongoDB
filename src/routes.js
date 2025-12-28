@@ -112,7 +112,7 @@ function routes(fastify, options) {
            ITEMS DA LLMRESULT (acq_id + sec)
       =============================== */
         // 1) Lista os testes agregados (por testName) de uma coleção
-        fastify.get("/api/llm/tests/:collectionId", { preHandler: [ensureAuthenticated_1.ensureAuthenticated] }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+        fastify.get("/api/llm/tests/:collectionId", (request, reply) => __awaiter(this, void 0, void 0, function* () {
             return new ListLLMTestsController_1.ListLLMTestsController().handle(request, reply);
         }));
         // 2) Lista os docs (acq_id + sec) de um teste específico

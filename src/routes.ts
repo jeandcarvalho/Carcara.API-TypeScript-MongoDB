@@ -200,7 +200,6 @@ fastify.get(
 // 1) Lista os testes agregados (por testName) de uma coleção
 fastify.get(
   "/api/llm/tests/:collectionId",
-  { preHandler: [ensureAuthenticated] },
   async (request: FastifyRequest, reply: FastifyReply) => {
     return new ListLLMTestsController().handle(request, reply);
   }
