@@ -15,15 +15,9 @@ class ListLLMTestsController {
     handle(request, reply) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const user = request.user;
                 const { collectionId } = request.params;
-                if (!user) {
-                    return reply.status(401).send({ error: "UNAUTHORIZED" });
-                }
                 if (!collectionId) {
-                    return reply
-                        .status(400)
-                        .send({ error: "COLLECTION_ID_REQUIRED" });
+                    return reply.status(400).send({ error: "COLLECTION_ID_REQUIRED" });
                 }
                 const service = new ListLLMTestsService_1.ListLLMTestsService();
                 const tests = yield service.execute({ collectionId });
