@@ -20,9 +20,10 @@
     "backend": "file:",
     "bcryptjs": "^3.0.3",
     "cli": "^1.0.1",
-    "fastify": "^5.7.4",
+    "fastify": "^4.26.0",
     "jsonwebtoken": "^9.0.2",
-    "mongodb": "^6.21.0",
+    "mongoclient": "^1.0.3",
+    "mongodb": "^6.3.0",
     "mongoose": "^8.10.0",
     "prisma": "^5.20.0",
     "tsx": "^4.7.0"
