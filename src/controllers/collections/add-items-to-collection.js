@@ -13,8 +13,8 @@ exports.AddItemsToCollectionController = void 0;
 const collections_service_1 = require("../../services/collections-service");
 class AddItemsToCollectionController {
     handle(request, reply) {
-        var _a;
         return __awaiter(this, void 0, void 0, function* () {
+            var _a;
             const user = request.user;
             if (!user || !user.id) {
                 return reply.code(401).send({ error: "Unauthorized" });

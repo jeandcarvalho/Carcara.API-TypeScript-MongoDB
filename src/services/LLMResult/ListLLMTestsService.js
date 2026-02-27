@@ -16,8 +16,8 @@ exports.ListLLMTestsService = void 0;
 // src/services/LLMResult/ListLLMTestsService.ts
 const prisma_1 = __importDefault(require("../../prisma"));
 class ListLLMTestsService {
-    execute({ collectionId }) {
-        return __awaiter(this, void 0, void 0, function* () {
+    execute(_a) {
+        return __awaiter(this, arguments, void 0, function* ({ collectionId }) {
             if (!collectionId) {
                 throw new Error("COLLECTION_ID_REQUIRED");
             }

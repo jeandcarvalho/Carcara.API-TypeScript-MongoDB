@@ -9,13 +9,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.publicGetLLMResultContextService = void 0;
+exports.publicGetLLMResultContextService = publicGetLLMResultContextService;
 // src/services/publicGetLLMResultContextService.ts
 const client_1 = require("@prisma/client");
 const prisma = new client_1.PrismaClient();
 function publicGetLLMResultContextService(params) {
-    var _a, _b, _c, _d, _e, _f;
     return __awaiter(this, void 0, void 0, function* () {
+        var _a, _b, _c, _d, _e, _f;
         const { collectionId, testName, llmModel, promptType, acq_id, sec } = params;
         // 1) Buscar o LLMResult correspondente (sem precisar de user_id)
         const llmResult = yield prisma.lLMResult.findFirst({
@@ -139,4 +139,3 @@ function publicGetLLMResultContextService(params) {
         };
     });
 }
-exports.publicGetLLMResultContextService = publicGetLLMResultContextService;

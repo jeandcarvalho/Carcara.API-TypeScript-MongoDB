@@ -15,7 +15,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SearchAcqIdsService = exports.buildMongoMatch = void 0;
+exports.SearchAcqIdsService = void 0;
+exports.buildMongoMatch = buildMongoMatch;
 const prisma_1 = __importDefault(require("../prisma"));
 /* ================= Helpers ================= */
 function splitList(v) {
@@ -301,12 +302,11 @@ function buildMongoMatch(q) {
     console.log("[SearchBigService] final $match:", JSON.stringify(match));
     return match;
 }
-exports.buildMongoMatch = buildMongoMatch;
 /* ================= Service ================= */
 class SearchAcqIdsService {
     execute(query) {
-        var _a, _b;
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b;
             const page = Math.max(1, Number((_a = query.page) !== null && _a !== void 0 ? _a : "1") || 1);
             const perPage = Math.max(1, Number((_b = query.per_page) !== null && _b !== void 0 ? _b : "100") || 100);
             const match = buildMongoMatch(query);

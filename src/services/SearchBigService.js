@@ -312,8 +312,8 @@ function buildMongoMatch(q) {
 /* ================= Service ================= */
 class SearchBigService {
     execute(query) {
-        var _a, _b;
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b;
             const page = Math.max(1, Number((_a = query.page) !== null && _a !== void 0 ? _a : "1") || 1);
             const perPage = Math.max(1, Number((_b = query.per_page) !== null && _b !== void 0 ? _b : "100") || 100);
             const match = buildMongoMatch(query);

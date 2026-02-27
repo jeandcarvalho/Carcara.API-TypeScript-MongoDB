@@ -15,8 +15,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CreateCollectionService = void 0;
 const prisma_1 = __importDefault(require("../prisma"));
 class CreateCollectionService {
-    execute({ userId, name, description }) {
-        return __awaiter(this, void 0, void 0, function* () {
+    execute(_a) {
+        return __awaiter(this, arguments, void 0, function* ({ userId, name, description }) {
             if (!name || !name.trim()) {
                 throw new Error("NAME_REQUIRED");
             }

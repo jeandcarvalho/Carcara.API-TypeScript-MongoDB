@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getCollectionSecondsWithLinksService = void 0;
+exports.getCollectionSecondsWithLinksService = getCollectionSecondsWithLinksService;
 // src/services/getCollectionSecondsWithLinksService.ts
 const prisma_1 = __importDefault(require("../prisma"));
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
@@ -75,8 +75,8 @@ function compactToRecorder(compact) {
  * Ambos são unificados internamente para uma chave canônica.
  */
 function getCollectionSecondsWithLinksService(userId, collectionId) {
-    var _a;
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         // 1) Validar se a coleção existe e pertence ao usuário
         const collection = yield prisma_1.default.collection.findFirst({
             where: {
@@ -234,4 +234,3 @@ function getCollectionSecondsWithLinksService(userId, collectionId) {
         };
     });
 }
-exports.getCollectionSecondsWithLinksService = getCollectionSecondsWithLinksService;

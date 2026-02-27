@@ -13,8 +13,8 @@ exports.ListLLMResponsesController = void 0;
 const ListLLMResponsesService_1 = require("../../services/LLMResult/ListLLMResponsesService");
 class ListLLMResponsesController {
     handle(request, reply) {
-        var _a;
         return __awaiter(this, void 0, void 0, function* () {
+            var _a;
             try {
                 // 🔓 endpoint agora é público – não exige mais user / auth
                 const { collectionId } = request.params;

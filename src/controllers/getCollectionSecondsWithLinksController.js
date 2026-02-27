@@ -13,8 +13,8 @@ exports.GetCollectionSecondsWithLinksController = void 0;
 const getCollectionSecondsWithLinksService_1 = require("../services/getCollectionSecondsWithLinksService");
 class GetCollectionSecondsWithLinksController {
     handle(request, reply) {
-        var _a, _b, _c, _d, _e;
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c, _d, _e;
             const anyReq = request;
             // Tenta vários lugares comuns onde o middleware pode ter colocado o id
             const userId = (_d = (_b = (_a = anyReq.user_id) !== null && _a !== void 0 ? _a : anyReq.userId) !== null && _b !== void 0 ? _b : (_c = anyReq.user) === null || _c === void 0 ? void 0 : _c.id) !== null && _d !== void 0 ? _d : (_e = anyReq.user) === null || _e === void 0 ? void 0 : _e._id;

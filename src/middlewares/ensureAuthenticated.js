@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ensureAuthenticated = void 0;
+exports.ensureAuthenticated = ensureAuthenticated;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 function ensureAuthenticated(request, reply) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -39,4 +39,3 @@ function ensureAuthenticated(request, reply) {
         }
     });
 }
-exports.ensureAuthenticated = ensureAuthenticated;

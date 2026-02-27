@@ -12,7 +12,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.removeItemsFromCollectionService = exports.addItemsToCollectionService = exports.getCollectionSecsForAcqService = exports.getUserCollectionsService = void 0;
+exports.getUserCollectionsService = getUserCollectionsService;
+exports.getCollectionSecsForAcqService = getCollectionSecsForAcqService;
+exports.addItemsToCollectionService = addItemsToCollectionService;
+exports.removeItemsFromCollectionService = removeItemsFromCollectionService;
 // src/services/collections/CollectionsService.ts
 const prisma_1 = __importDefault(require("../prisma"));
 // ---------------------------
@@ -42,7 +45,6 @@ function getUserCollectionsService(userId) {
         }));
     });
 }
-exports.getUserCollectionsService = getUserCollectionsService;
 // --------------------------------------------------------
 // 2) Buscar secs de uma acq_id específica dentro da coleção
 // --------------------------------------------------------
@@ -67,7 +69,6 @@ function getCollectionSecsForAcqService(userId, collectionId, acq_id) {
         };
     });
 }
-exports.getCollectionSecsForAcqService = getCollectionSecsForAcqService;
 // ----------------------------------------------------
 // 3) Adicionar momentos (acq_id + sec) à coleção
 // ----------------------------------------------------
@@ -105,7 +106,6 @@ function addItemsToCollectionService(userId, collectionId, items) {
         return { inserted: result.count };
     });
 }
-exports.addItemsToCollectionService = addItemsToCollectionService;
 // ----------------------------------------------------
 // 4) Remover momentos (acq_id + sec) da coleção
 // ----------------------------------------------------
@@ -136,4 +136,3 @@ function removeItemsFromCollectionService(userId, collectionId, items) {
         return { deleted: result.count };
     });
 }
-exports.removeItemsFromCollectionService = removeItemsFromCollectionService;

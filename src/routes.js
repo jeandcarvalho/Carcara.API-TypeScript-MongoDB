@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.routes = void 0;
+exports.routes = routes;
 // Controllers de items da coleção (funções)
 const get_collection_items_by_acq_1 = require("./controllers/collections/get-collection-items-by-acq");
 const add_items_to_collection_1 = require("./controllers/collections/add-items-to-collection");
@@ -140,4 +140,3 @@ function routes(fastify, options) {
         fastify.get("/public/llmresult/context", new PublicGetLLMResultContextController_1.PublicGetLLMResultContextController().handle);
     });
 }
-exports.routes = routes;

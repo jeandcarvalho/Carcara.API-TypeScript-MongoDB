@@ -16,8 +16,8 @@ exports.DeleteLLMTestService = void 0;
 // src/services/LLMResult/DeleteLLMTestService.ts
 const prisma_1 = __importDefault(require("../../prisma"));
 class DeleteLLMTestService {
-    execute({ collectionId, testName, llmModel, promptType, }) {
-        return __awaiter(this, void 0, void 0, function* () {
+    execute(_a) {
+        return __awaiter(this, arguments, void 0, function* ({ collectionId, testName, llmModel, promptType, }) {
             if (!collectionId) {
                 throw new Error("COLLECTION_ID_REQUIRED");
             }
