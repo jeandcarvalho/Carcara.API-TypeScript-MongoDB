@@ -35,5 +35,3 @@ Each acquisition represents a **5-minute data block**, containing:
 - **Prisma ORM**
 - **MongoDB (Cloud / Atlas)**
 - Deployment: **Render.com**
-
----
